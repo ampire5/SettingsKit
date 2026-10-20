@@ -141,7 +141,10 @@ struct DebouncerTests {
         var committed: [String] = []
         debouncer.submit("a") { committed.append($0) }
         debouncer.submit("b") { committed.append($0) }
-        try await Task.sleep(for: .milliseconds(400))
+        // Wait for the commit rather than a fixed time: a loaded CI machine can hold the main actor for a while.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while committed.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(100))
         #expect(committed == ["b"])
     }
 }
