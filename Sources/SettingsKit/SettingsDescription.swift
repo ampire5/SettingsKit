@@ -122,6 +122,9 @@ public enum RowKind: Sendable {
     case choice([(word: String, title: String)])
     /// A right-aligned number field with the unit after it; ↑/↓ step by `step`, ⇧↑/⇧↓ by ten steps.
     case number(unit: String?, step: Double)
+    /// A slider over `range` with the title of the nearest of `marks` after it; the value is written as the
+    /// shortest number (`1.5`, `0.5625`) after a pause in the drag.
+    case slider(range: ClosedRange<Double>, marks: [(value: Double, title: String)])
     /// A full-width text field under the title.
     case text(placeholder: String?)
     /// A comma list of words: a chevron row that expands into one switch per item.
@@ -165,6 +168,27 @@ public extension SettingsRow {
                        nested: [SettingsRow] = [], off: Set<String> = []) -> SettingsRow {
         SettingsRow(key: key, kind: .number(unit: unit, step: step), title: title, description: description,
                     symbol: symbol, nested: nested, offValues: off)
+    }
+
+    /// `marks`: values with their names (`1.5` → `3:2`); the row shows the name of the one nearest the value.
+    static func slider(_ key: String, _ title: String, range: ClosedRange<Double>,
+                       marks: [(value: Double, title: String)], symbol: String? = nil,
+                       description: String? = nil) -> SettingsRow {
+        SettingsRow(key: key, kind: .slider(range: range, marks: marks), title: title, description: description,
+                    symbol: symbol)
+    }
+
+    /// The title of the mark nearest `value` (the first of two as near); empty without marks.
+    static func nearestMark(_ value: Double, in marks: [(value: Double, title: String)]) -> String {
+        marks.min { abs($0.value - value) < abs($1.value - value) }?.title ?? ""
+    }
+
+    /// A slider's value as the store gets it: at most four decimals, no trailing zeros (`1.5`, `0.5625`, `1`).
+    static func sliderText(_ value: Double) -> String {
+        var text = String(format: "%.4f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text == "-0" ? "0" : text
     }
 
     static func text(_ key: String, _ title: String, placeholder: String? = nil, symbol: String? = nil,
