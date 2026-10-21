@@ -29,7 +29,7 @@ struct CardView: View {
     }
 
     var body: some View {
-        let lines = card.rows.flatMap { lines(for: $0, nested: false, enabled: true) }
+        let lines = card.rows.flatMap { self.lines(for: $0, nested: false, enabled: true) }
         VStack(spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
                 Group {
