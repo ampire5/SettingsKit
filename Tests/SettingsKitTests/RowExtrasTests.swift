@@ -121,4 +121,25 @@ struct RowExtrasTests {
         #expect(model.value("n") == "1")
         #expect(model.writeFailure?.key == "n")
     }
+    @Test func sliderRowBuildsAndNamesNearestMark() {
+        let marks: [(value: Double, title: String)] = [(0.5625, "9:16"), (0.75, "3:4"), (1, "1:1"), (4.0 / 3, "4:3"),
+                                                       (1.5, "3:2")]
+        let row = SettingsRow.slider("strip-cell-max", "Widest thumbnail", range: 0.5625...1.5, marks: marks)
+        guard case .slider(let range, let built) = row.kind else {
+            Issue.record("not a slider: \(row.kind)")
+            return
+        }
+        #expect(range == 0.5625...1.5)
+        #expect(built.map(\.value) == marks.map(\.value))
+        #expect(built.map(\.title) == marks.map(\.title))
+        #expect(SettingsRow.nearestMark(0.58, in: marks) == "9:16")
+        #expect(SettingsRow.nearestMark(1.0, in: marks) == "1:1")
+        #expect(SettingsRow.nearestMark(1.4, in: marks) == "4:3")
+        #expect(SettingsRow.nearestMark(1.45, in: marks) == "3:2")
+        // the value is written as the shortest number
+        #expect(SettingsRow.sliderText(1.5) == "1.5")
+        #expect(SettingsRow.sliderText(0.5625) == "0.5625")
+        #expect(SettingsRow.sliderText(1) == "1")
+        #expect(SettingsRow.sliderText(1.33333333) == "1.3333")
+    }
 }

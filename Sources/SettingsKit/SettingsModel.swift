@@ -47,7 +47,10 @@ public final class SettingsModel {
     public func register(_ pages: [SettingsPage]) {
         for row in pages.flatMap(\.rows) {
             guard let key = row.key else { continue }
-            if case .number = row.kind { numberKeys.insert(key) }
+            switch row.kind {
+            case .number, .slider: numberKeys.insert(key)
+            default: break
+            }
         }
         let keys = pages.flatMap(\.keys)
         registeredKeys += keys.filter { !registeredKeys.contains($0) }

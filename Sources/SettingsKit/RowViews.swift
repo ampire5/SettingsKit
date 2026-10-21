@@ -112,6 +112,8 @@ struct RowView: View {
                     }
                 }
             }
+        case .slider(let range, let marks):
+            if let key = row.key { SliderControl(key: key, range: range, marks: marks) }
         case .color(let count):
             if let key = row.key { ColorControl(key: key, count: count, names: row.colorNames) }
         case .icon(let choices):
@@ -180,6 +182,58 @@ struct ChoicePicker: View {
             if !items.contains(where: { $0.word == value }) { Text(value).tag(value) }
         }
         .labelsHidden().pickerStyle(.menu).fixedSize()
+    }
+}
+
+/// A slider over the key's number and the name of the nearest mark. The knob moves at once; the value is written
+/// after a pause in the drag (`Debouncer`) and at the end of it. Text that is not a number puts the knob at the
+/// lower end without a write.
+struct SliderControl: View {
+    /// Quiet time before a dragged value is written.
+    static let pause: TimeInterval = 0.25
+
+    @Environment(SettingsModel.self) private var model
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.settingsStyle) private var style
+    let key: String
+    let range: ClosedRange<Double>
+    let marks: [(value: Double, title: String)]
+    /// The knob's value while a drag is not yet written.
+    @State private var dragged: Double?
+    @State private var debouncer = Debouncer<Double>(delay: SliderControl.pause)
+
+    var body: some View {
+        let value = dragged ?? stored
+        HStack(spacing: 8) {
+            Slider(value: Binding(get: { value }, set: change), in: range) { editing in
+                if !editing { debouncer.flush() }
+            }
+            .labelsHidden().controlSize(.small).frame(width: 120)
+            Text(SettingsRow.nearestMark(value, in: marks))
+                .font(.system(size: 13).monospacedDigit())
+                .foregroundStyle(isEnabled ? style.secondaryText : AnyShapeStyle(.tertiary))
+                .frame(minWidth: 34, alignment: .trailing)
+        }
+        .onDisappear { debouncer.flush() }
+    }
+
+    private var stored: Double {
+        Double(SettingsModel.normalizedNumber(model.value(key))).map { min(max($0, range.lowerBound), range.upperBound) }
+            ?? range.lowerBound
+    }
+
+    private func change(_ value: Double) {
+        dragged = value
+        let model = model, key = key
+        let box: State<Double?> = _dragged
+        debouncer.submit(value) { value in
+            let text = SettingsRow.sliderText(value)
+            if text != model.value(key) {
+                model.cancelEditing(key)
+                model.set(key, text)
+            }
+            box.wrappedValue = nil
+        }
     }
 }
 
