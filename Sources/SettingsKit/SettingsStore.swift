@@ -16,6 +16,25 @@ public protocol SettingsStore: AnyObject {
     /// The value set for the current folder only, if any.
     func folderOverride(forKey key: String) -> String?
     func clearFolderOverride(forKey key: String)
+    /// What the store has to say about `key`'s current value on this machine (too many threads for the cores, a
+    /// cache larger than the memory), or nil when the value is fine.
+    func machineNote(forKey key: String) -> SettingsNote?
+}
+
+/// A remark under a row about its value on this Mac: «harmful» values do not take effect as written, «suboptimal»
+/// ones do but a better one exists.
+public struct SettingsNote: Equatable, Sendable {
+    public enum Severity: Sendable { case harmful, suboptimal }
+    public let severity: Severity
+    public let text: String
+    /// The value to offer in «Use recommended», as written in the store; nil when there is none to offer.
+    public let recommended: String?
+
+    public init(severity: Severity, text: String, recommended: String? = nil) {
+        self.severity = severity
+        self.text = text
+        self.recommended = recommended
+    }
 }
 
 public extension SettingsStore {
@@ -27,6 +46,7 @@ public extension SettingsStore {
 
     func folderOverride(forKey key: String) -> String? { nil }
     func clearFolderOverride(forKey key: String) {}
+    func machineNote(forKey key: String) -> SettingsNote? { nil }
 }
 
 public extension Notification.Name {

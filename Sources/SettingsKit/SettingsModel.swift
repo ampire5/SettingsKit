@@ -20,9 +20,12 @@ public final class SettingsModel {
     /// key → the value the current folder sets for itself (`SettingsStore.folderOverride`), for the registered keys
     /// that have one: the rows' folder note.
     private var folderOverrides: [String: String] = [:]
+    /// key → the store's note about the key's value on this machine (`SettingsStore.machineNote`), for the registered
+    /// keys that have one: the rows' machine note.
+    private var machineNotes: [String: SettingsNote] = [:]
 
     @ObservationIgnored private var numberKeys: Set<String> = []
-    /// The keys of the registered pages, in order (the folder overrides are asked for them).
+    /// The keys of the registered pages, in order (the folder overrides and machine notes are asked for them).
     @ObservationIgnored private var registeredKeys: [String] = []
     @ObservationIgnored private nonisolated(unsafe) var observer: NSObjectProtocol?
 
@@ -75,10 +78,26 @@ public final class SettingsModel {
     /// its values changed (another window became main, a key in the viewer set a folder value).
     public func refreshFolderOverrides() {
         var found: [String: String] = [:]
+        var notes: [String: SettingsNote] = [:]
         for key in registeredKeys {
             if let value = store.folderOverride(forKey: key) { found[key] = value }
+            if let note = store.machineNote(forKey: key) { notes[key] = note }
         }
         if found != folderOverrides { folderOverrides = found }
+        if notes != machineNotes { machineNotes = notes }
+    }
+
+    // MARK: Machine
+
+    /// The store's note about `key`'s value on this machine, or nil (the row then shows none). Refreshed together
+    /// with the folder overrides: on `register`, on every announcement of the store and on `refreshFolderOverrides()`.
+    public func machineNote(_ key: String) -> SettingsNote? { machineNotes[key] }
+
+    /// «Use recommended»: writes the note's recommended value for `key` (as `set` does); nothing when the note has
+    /// none.
+    public func useRecommended(_ key: String) {
+        guard let recommended = machineNotes[key]?.recommended else { return }
+        set(key, recommended)
     }
 
     // MARK: Values

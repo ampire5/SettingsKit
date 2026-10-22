@@ -16,6 +16,8 @@ final class MemoryStore: SettingsStore {
     var removedBatches: [[String]] = []
     /// The keys `clearFolderOverride` was called with, in order.
     var clearedFolderKeys: [String] = []
+    /// The store's machine notes by key (`machineNote`).
+    var notes: [String: SettingsNote] = [:]
 
     init(values: [String: String] = [:], defaults: [String: String] = [:],
          validate: @escaping (String, String) -> String? = { _, _ in nil }) {
@@ -41,6 +43,7 @@ final class MemoryStore: SettingsStore {
     }
 
     func folderOverride(forKey key: String) -> String? { folder[key] }
+    func machineNote(forKey key: String) -> SettingsNote? { notes[key] }
     func clearFolderOverride(forKey key: String) {
         clearedFolderKeys.append(key)
         folder[key] = nil

@@ -27,6 +27,9 @@ struct RowView: View {
                 if let key = row.key, let value = model.folderOverride(key) {
                     FolderNote(key: key, text: FolderNote.text(value, row: row))
                 }
+                if let key = row.key, let machine = model.machineNote(key) {
+                    MachineNote(key: key, note: machine)
+                }
             }
             .frame(maxWidth: isFullWidth ? .infinity : nil, alignment: .leading)
             if !isFullWidth { Spacer(minLength: 8) }
@@ -445,6 +448,35 @@ enum IconMenu {
             item.representedObject = choice.word
             item.image = menuImage(choice.image)
             return item
+        }
+    }
+}
+
+/// Under a row whose value the store flags for this Mac: the note's text and, when it names a better value, «Use
+/// recommended (<value>)», which writes it.
+struct MachineNote: View {
+    @Environment(SettingsModel.self) private var model
+    @Environment(\.settingsStyle) private var style
+    let key: String
+    let note: SettingsNote
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label {
+                Text(note.text)
+            } icon: {
+                switch note.severity {
+                case .harmful: Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                case .suboptimal: Image(systemName: "info.circle")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(style.secondaryText)
+            if let recommended = note.recommended {
+                Button("Use recommended (\(recommended))") { model.useRecommended(key) }
+                    .controlSize(.small)
+                    .help("Write the value recommended for this Mac")
+            }
         }
     }
 }
