@@ -69,6 +69,19 @@ let controller = SettingsWindowController(pages: pages, model: SettingsModel(sto
 controller.show(page: nil)
 ```
 
+### Icon picker window
+
+A grid of the app's available icons to pick the Dock icon from, for a menu item such as View › App Icon…: a click
+applies the choice at once (the app sets `NSApp.applicationIconImage` and saves the value), Esc closes it.
+
+```swift
+let picker = IconPickerWindowController(title: "App Icon",
+                                        choices: { myIconChoices() },        // [(word: String, image: NSImage?)]
+                                        current: { settings.appIcon },
+                                        onPick: { settings.appIcon = $0 })
+picker.show()
+```
+
 Keep `controller` alive. The model refreshes only the keys a store lists in `.settingsStoreDidChange`, posted with the
 store as `object` for every change, the store's own writes included.
 
