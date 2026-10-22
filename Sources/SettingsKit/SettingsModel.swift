@@ -114,12 +114,21 @@ public final class SettingsModel {
         refresh([key])
     }
 
-    /// Reset to Default: writes the store's default through `set` (the line stays in the file with the default
-    /// value), after dropping the key's draft and error.
+    /// Reset to Default: the store forgets the key (`removeValues`) and its default applies again, after dropping the
+    /// key's draft and error. A store that fails keeps the value and sets `writeFailure`.
     public func reset(_ key: String) {
-        drafts[key] = nil
-        if errors[key] != nil { errors[key] = nil }
-        set(key, store.defaultValue(forKey: key))
+        reset([key])
+    }
+
+    /// Reset Page to Defaults: `reset` for every key of `page` that differs from its default, in one store call.
+    public func resetPage(_ page: SettingsPage) {
+        reset(modifiedKeys(in: page))
+    }
+
+    /// The keys of `page` whose value differs from the default, in order (the page's reset button is off without them).
+    public func modifiedKeys(in page: SettingsPage) -> [String] {
+        var seen: Set<String> = []
+        return page.keys.filter { seen.insert($0).inserted && isModified($0) }
     }
 
     /// Whether the key's value differs from the store's default (the dot beside a row's title).
@@ -181,6 +190,22 @@ public final class SettingsModel {
     }
 
     // MARK: Private
+
+    private func reset(_ keys: [String]) {
+        guard !keys.isEmpty else { return }
+        for key in keys {
+            drafts[key] = nil
+            if errors[key] != nil { errors[key] = nil }
+        }
+        do {
+            try store.removeValues(forKeys: keys)
+        } catch {
+            writeFailure = (keys[0], error.localizedDescription)
+            keys.forEach(reannounce)
+            return
+        }
+        refresh(keys)
+    }
 
     private func storeValue(_ key: String) -> String {
         store.value(forKey: key) ?? store.defaultValue(forKey: key)
