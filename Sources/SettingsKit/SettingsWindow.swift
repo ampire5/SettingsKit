@@ -39,7 +39,8 @@ public final class SettingsWindowController: NSWindowController {
         window.toolbarStyle = .unified
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        // Never full screen (⌃⌘F acts on the key window): a settings window stays a window.
+        // Never full screen (⌃⌘F acts on the key window): a settings window stays a window. `.fullScreenAuxiliary`
+        // (shown over a full-screen window) would exclude this: AppKit allows only one of primary/auxiliary/none.
         window.collectionBehavior.insert(.fullScreenNone)
         window.contentMinSize = NSSize(width: 640, height: 400)
         if !window.setFrameUsingName(autosaveName) { window.center() }
@@ -70,10 +71,25 @@ public final class SettingsWindowController: NSWindowController {
     /// Brings the window to the front, on `page` when given (otherwise the page it was on).
     public func show(page: String?) {
         if let page, ui.pages.contains(where: { $0.id == page }) { ui.select(page) }
+        moveToWorkingScreen()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         window?.layoutIfNeeded()
         if !pinSidebarWidth() { DispatchQueue.main.async { [weak self] in _ = self?.pinSidebarWidth() } }
+    }
+
+    /// Puts the window on the screen the user is working on: the key window's, else the main window's (never this
+    /// one), else the pointer's, else the main screen's. The autosaved frame stays when it is already there.
+    /// A window the user is working in (key) is left where it is.
+    private func moveToWorkingScreen() {
+        guard let window, !window.isKeyWindow else { return }
+        func screen(of other: NSWindow?) -> NSScreen? { other === window ? nil : other?.screen }
+        let pointer = NSEvent.mouseLocation
+        let target = screen(of: NSApp.keyWindow) ?? screen(of: NSApp.mainWindow)
+            ?? NSScreen.screens.first { $0.frame.contains(pointer) } ?? NSScreen.main
+        guard let target else { return }
+        let frame = SettingsWindowPlacement.frame(saved: window.frame, in: target.visibleFrame)
+        if frame != window.frame { window.setFrame(frame, display: false) }
     }
 
     /// `navigationSplitViewColumnWidth` is not applied when the split view is hosted in an AppKit window
@@ -223,5 +239,17 @@ struct SettingsRootView: View {
         } message: {
             Text(model.writeFailure?.message ?? "")
         }
+    }
+}
+
+/// Where the settings window goes on a screen (pure, so it can be tested without screens).
+enum SettingsWindowPlacement {
+    /// `saved` when its centre is already on the screen (`visible` is the screen's `visibleFrame`); otherwise
+    /// the saved size, clamped to `visible`, centred in it.
+    static func frame(saved: NSRect, in visible: NSRect) -> NSRect {
+        if visible.contains(NSPoint(x: saved.midX, y: saved.midY)) { return saved }
+        let size = NSSize(width: min(saved.width, visible.width), height: min(saved.height, visible.height))
+        return NSRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2,
+                      width: size.width, height: size.height)
     }
 }
