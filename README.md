@@ -20,6 +20,10 @@ What else is in the box:
   `clearFolderOverride(forKey:)` (both have empty defaults). A row whose key the current folder sets shows «This
   folder: <value>» with a «Use Default» button, which calls `SettingsModel.clearFolderOverride(_:)`; call
   `refreshFolderOverrides()` when the current folder changes.
+- **Back to defaults**: a row's context menu has «Reset to Default» (`SettingsModel.reset(_:)`); a changed row shows a
+  dot by its title. Below a page with keys, «Reset Page to Defaults…» asks, then resets the page's changed keys in one
+  `removeValues(forKeys:)` call. Its default writes each key's default value; a store that can drop a key should
+  implement it, so a default that depends on the machine keeps following it.
 - **Programmatic control** on `SettingsWindowController`: `show(page:)`, `search(_:)` (fills the search field),
   `expand(_:)` (opens a `.group` or `.flags` row by its id), `endEditing()` (commit a field before quitting).
 - **Two styles**: `SettingsStyle.glass` (default) and `.plain`.

@@ -29,7 +29,7 @@ struct RowExtrasTests {
         #expect(model.value("a") == "yes")
     }
 
-    @Test func resetWritesDefault() {
+    @Test func resetRemovesTheValue() {
         let store = MemoryStore(values: ["n": "300"], defaults: ["n": "250"],
                                 validate: { v, _ in Double(v) == nil ? "Not a valid value" : nil })
         let model = SettingsModel(store: store)
@@ -39,17 +39,45 @@ struct RowExtrasTests {
         model.commit("n")
         #expect(model.errors["n"] != nil)
         model.reset("n")
-        #expect(store.values["n"] == "250")
+        #expect(store.values["n"] == nil)
         #expect(model.value("n") == "250")
         #expect(model.errors["n"] == nil)
         #expect(model.draft("n") == nil)
     }
 
-    @Test func resetAtDefaultStillWritesTheLine() {
-        let store = MemoryStore(values: [:], defaults: ["a": "no"])
+    @Test func resetAtDefaultStillRemovesTheValue() {   // a value written equal to the default stops pinning it
+        let store = MemoryStore(values: ["a": "no"], defaults: ["a": "no"])
         let model = SettingsModel(store: store)
         model.reset("a")
+        #expect(store.values["a"] == nil)
+    }
+
+    @Test func storeThatCannotRemoveWritesTheDefault() {
+        final class PlainStore: SettingsStore {
+            var values = ["a": "yes"]
+            func value(forKey key: String) -> String? { values[key] }
+            func defaultValue(forKey key: String) -> String { "no" }
+            func validate(_ value: String, forKey key: String) -> String? { nil }
+            func setValue(_ value: String, forKey key: String) throws { values[key] = value }
+        }
+        let store = PlainStore()
+        SettingsModel(store: store).reset("a")
         #expect(store.values["a"] == "no")
+    }
+
+    @Test func resetPageRemovesOnlyItsChangedKeysAtOnce() {
+        let store = MemoryStore(values: ["a": "yes", "b": "no", "c": "9", "x": "yes"],
+                                defaults: ["a": "no", "b": "no", "c": "1", "x": "no"])
+        let model = SettingsModel(store: store)
+        let p = page([.toggle("a", "A"), .toggle("b", "B"), .number("c", "C")])
+        model.register([p])
+        #expect(model.modifiedKeys(in: p) == ["a", "c"])
+        model.resetPage(p)
+        #expect(store.removedBatches == [["a", "c"]])
+        #expect(store.values == ["b": "no", "x": "yes"])
+        #expect(model.modifiedKeys(in: p).isEmpty)
+        model.resetPage(p)   // nothing changed: no store call
+        #expect(store.removedBatches.count == 1)
     }
 
     @Test func modifiedFollowsValue() {

@@ -12,6 +12,8 @@ final class MemoryStore: SettingsStore {
     var writeError: Error?
     /// The current folder's own values (`folderOverride`).
     var folder: [String: String] = [:]
+    /// Each `removeValues` call's keys, in order.
+    var removedBatches: [[String]] = []
     /// The keys `clearFolderOverride` was called with, in order.
     var clearedFolderKeys: [String] = []
 
@@ -29,6 +31,13 @@ final class MemoryStore: SettingsStore {
         if let writeError { throw writeError }
         values[key] = value
         announce([key])
+    }
+
+    func removeValues(forKeys keys: [String]) throws {
+        if let writeError { throw writeError }
+        removedBatches.append(keys)
+        for key in keys { values[key] = nil }
+        announce(keys)
     }
 
     func folderOverride(forKey key: String) -> String? { folder[key] }

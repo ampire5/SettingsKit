@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// A page: section headings and cards in a scroll view. The sidebar's sub-section dot follows the scrolling;
-/// a sub-section clicked in the sidebar is scrolled to and keeps the dot until the user scrolls.
+/// A page: section headings and cards in a scroll view, and below them Reset Page to Defaults (on a page with keys).
+/// The sidebar's sub-section dot follows the scrolling; a sub-section clicked in the sidebar is scrolled to and keeps
+/// the dot until the user scrolls.
 struct PageView: View {
     @Environment(SettingsUIState.self) private var ui
+    @Environment(SettingsModel.self) private var model
     @Environment(\.settingsStyle) private var style
     let page: SettingsPage
     @State private var sectionFrames: [String: CGRect] = [:]
@@ -11,6 +13,7 @@ struct PageView: View {
     @State private var position = ScrollPosition(edge: .top)
     /// The clicked sub-section; holds the dot (even where the page cannot scroll that far) until a user scroll.
     @State private var pinned: String?
+    @State private var confirmingReset = false
 
     var body: some View {
         ScrollView {
@@ -31,6 +34,7 @@ struct PageView: View {
                         updateCurrentSection()
                     }
                 }
+                if !page.keys.isEmpty { resetButton }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
@@ -58,6 +62,23 @@ struct PageView: View {
             }
         }
         .navigationTitle(page.title)
+    }
+
+    /// Asks first: the page's changed settings go back to their defaults at once (`SettingsModel.resetPage`).
+    private var resetButton: some View {
+        let changed = model.modifiedKeys(in: page).count
+        return HStack {
+            Spacer()
+            Button("Reset Page to Defaults…") { confirmingReset = true }
+                .disabled(changed == 0)
+                .help(changed == 0 ? "Every setting on this page is at its default" : "Changed on this page: \(changed)")
+        }
+        .confirmationDialog("Reset “\(page.title)” to its defaults?", isPresented: $confirmingReset) {
+            Button("Reset", role: .destructive) { model.resetPage(page) }
+        } message: {
+            Text(changed == 1 ? "1 changed setting goes back to its default."
+                              : "\(changed) changed settings go back to their defaults.")
+        }
     }
 
     /// IINA's rule: the first section while near the top, the last at the bottom, otherwise the last section
