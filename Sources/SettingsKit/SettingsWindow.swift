@@ -32,16 +32,22 @@ public final class SettingsWindowController: NSWindowController {
             .environment(\.settingsStyle, style))
         host.sceneBridgingOptions = [.toolbars]
         host.view.frame = NSRect(x: 0, y: 0, width: 782, height: 637)  // IINA's default size
-        let window = NSWindow(contentRect: host.view.frame,
+        let window = SettingsWindow(contentRect: host.view.frame,
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: true)
         window.contentViewController = host
         window.toolbarStyle = .unified
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        // Never full screen (⌃⌘F acts on the key window): a settings window stays a window. `.fullScreenAuxiliary`
-        // (shown over a full-screen window) would exclude this: AppKit allows only one of primary/auxiliary/none.
-        window.collectionBehavior.insert(.fullScreenNone)
+        // Auxiliary: shown over a full-screen window, in its space. The window itself never goes full screen
+        // (`toggleFullScreen` is a no-op, so ⌃⌘F and the menu item do nothing); AppKit allows only one of
+        // primary/auxiliary/none, so `.fullScreenNone` cannot be kept alongside.
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
+        // The green button would call `toggleFullScreen`; it zooms instead, as with `.fullScreenNone`.
+        if let zoom = window.standardWindowButton(.zoomButton) {
+            zoom.target = window
+            zoom.action = #selector(NSWindow.performZoom(_:))
+        }
         window.contentMinSize = NSSize(width: 640, height: 400)
         if !window.setFrameUsingName(autosaveName) { window.center() }
         window.setFrameAutosaveName(autosaveName)
@@ -252,4 +258,9 @@ enum SettingsWindowPlacement {
         return NSRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2,
                       width: size.width, height: size.height)
     }
+}
+
+/// The settings window: a plain window that never goes full screen.
+final class SettingsWindow: NSWindow {
+    override func toggleFullScreen(_ sender: Any?) {}
 }
