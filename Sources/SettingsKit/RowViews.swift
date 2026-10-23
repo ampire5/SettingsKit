@@ -453,7 +453,8 @@ enum IconMenu {
 }
 
 /// Under a row whose value the store flags for this Mac: the note's text and, when it names a better value, «Use
-/// recommended (<value>)», which writes it.
+/// recommended (<value>)», which writes it. Side by side while both fit; a long note goes above the button rather
+/// than squeeze it.
 struct MachineNote: View {
     @Environment(SettingsModel.self) private var model
     @Environment(\.settingsStyle) private var style
@@ -461,22 +462,33 @@ struct MachineNote: View {
     let note: SettingsNote
 
     var body: some View {
-        HStack(spacing: 8) {
-            Label {
-                Text(note.text)
-            } icon: {
-                switch note.severity {
-                case .harmful: Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                case .suboptimal: Image(systemName: "info.circle")
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { label; button }
+            VStack(alignment: .leading, spacing: 4) { label; button }
+        }
+    }
+
+    /// The icon is read out as the severity («Warning», «Note») ahead of the text, as one element.
+    private var label: some View {
+        Label {
+            Text(note.text)
+        } icon: {
+            switch note.severity {
+            case .harmful:
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).accessibilityLabel("Warning")
+            case .suboptimal: Image(systemName: "info.circle").accessibilityLabel("Note")
             }
-            .font(.system(size: 11))
-            .foregroundStyle(style.secondaryText)
-            if let recommended = note.recommended {
-                Button("Use recommended (\(recommended))") { model.useRecommended(key) }
-                    .controlSize(.small)
-                    .help("Write the value recommended for this Mac")
-            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(style.secondaryText)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var button: some View {
+        if let recommended = note.recommended {
+            Button("Use recommended (\(recommended))") { model.useRecommended(key) }
+                .controlSize(.small)
+                .help("Write the value recommended for this Mac")
         }
     }
 }

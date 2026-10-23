@@ -74,8 +74,9 @@ public final class SettingsModel {
         refreshFolderOverrides()
     }
 
-    /// Asks the store again for every registered key's folder value: for the app to call when the current folder or
-    /// its values changed (another window became main, a key in the viewer set a folder value).
+    /// Asks the store again for every registered key's folder value and machine note (`machineNote`): for the app to
+    /// call when the current folder or its values changed (another window became main, a key in the viewer set a
+    /// folder value).
     public func refreshFolderOverrides() {
         var found: [String: String] = [:]
         var notes: [String: SettingsNote] = [:]
