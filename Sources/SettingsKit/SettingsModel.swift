@@ -8,22 +8,18 @@ import Observation
 public final class SettingsModel {
     @ObservationIgnored public let store: SettingsStore
 
-    /// key → value as last read from the store (registered and announced keys).
-    private var values: [String: String] = [:]
+    /// key → the key's state (value, error, draft, folder value, machine note). Each key's state is observed on its
+    /// own: a view that reads one key updates when that key changes, not when any key does. With one dictionary per
+    /// kind of state, a change to any key updated every row of every page the window keeps (`keptPages`): 190 ms per
+    /// changed setting with Loupe's 11 pages kept, against 80 ms with only the open page before (LoupeBench settings,
+    /// Intel iMac).
+    @ObservationIgnored private var slots: [String: KeySlot] = [:]
     /// key → error text of the last rejected or failed write; cleared by the next good write or `cancelEditing`.
-    public private(set) var errors: [String: String] = [:]
+    /// Reads every key; a view asks `error(_:)` for its own.
+    public var errors: [String: String] { slots.compactMapValues(\.error) }
     /// The last write the store could not perform (no permission, full disk): the key and the error text. The
     /// window shows it as an alert and clears it; the row keeps the store's value.
     public private(set) var writeFailure: (key: String, message: String)?
-    /// key → text typed into a field that has not been committed yet.
-    private var drafts: [String: String] = [:]
-    /// key → the value the current folder sets for itself (`SettingsStore.folderOverride`), for the registered keys
-    /// that have one: the rows' folder note.
-    private var folderOverrides: [String: String] = [:]
-    /// key → the store's note about the key's value on this machine (`SettingsStore.machineNote`), for the registered
-    /// keys that have one: the rows' machine note.
-    private var machineNotes: [String: SettingsNote] = [:]
-
     @ObservationIgnored private var numberKeys: Set<String> = []
     /// The keys of the registered pages, in order (the folder overrides and machine notes are asked for them).
     @ObservationIgnored private var registeredKeys: [String] = []
@@ -65,7 +61,7 @@ public final class SettingsModel {
 
     /// The value the current folder sets for `key` itself, or nil (the row then shows no folder note). Asked of the
     /// store on `register`, on every announcement of the store and on `refreshFolderOverrides()`.
-    public func folderOverride(_ key: String) -> String? { folderOverrides[key] }
+    public func folderOverride(_ key: String) -> String? { slot(key).folderOverride }
 
     /// «Use Default»: the folder drops its own value of `key` (the store's `clearFolderOverride`); the file is not
     /// written.
@@ -78,26 +74,24 @@ public final class SettingsModel {
     /// call when the current folder or its values changed (another window became main, a key in the viewer set a
     /// folder value).
     public func refreshFolderOverrides() {
-        var found: [String: String] = [:]
-        var notes: [String: SettingsNote] = [:]
         for key in registeredKeys {
-            if let value = store.folderOverride(forKey: key) { found[key] = value }
-            if let note = store.machineNote(forKey: key) { notes[key] = note }
+            let slot = slot(key)
+            let value = store.folderOverride(forKey: key), note = store.machineNote(forKey: key)
+            if slot.folderOverride != value { slot.folderOverride = value }
+            if slot.machineNote != note { slot.machineNote = note }
         }
-        if found != folderOverrides { folderOverrides = found }
-        if notes != machineNotes { machineNotes = notes }
     }
 
     // MARK: Machine
 
     /// The store's note about `key`'s value on this machine, or nil (the row then shows none). Refreshed together
     /// with the folder overrides: on `register`, on every announcement of the store and on `refreshFolderOverrides()`.
-    public func machineNote(_ key: String) -> SettingsNote? { machineNotes[key] }
+    public func machineNote(_ key: String) -> SettingsNote? { slot(key).machineNote }
 
     /// «Use recommended»: writes the note's recommended value for `key` (as `set` does); nothing when the note has
     /// none.
     public func useRecommended(_ key: String) {
-        guard let recommended = machineNotes[key]?.recommended else { return }
+        guard let recommended = slots[key]?.machineNote?.recommended else { return }
         set(key, recommended)
     }
 
@@ -105,8 +99,11 @@ public final class SettingsModel {
 
     /// The store's value, or its default when the key is not set.
     public func value(_ key: String) -> String {
-        values[key] ?? storeValue(key)
+        slot(key).value ?? storeValue(key)
     }
+
+    /// The error text of the last rejected or failed write of `key`, or nil.
+    public func error(_ key: String) -> String? { slot(key).error }
 
     /// Validates and writes `value`. A rejected write keeps the old value and sets `errors[key]`; one the store
     /// fails (`setValue` throws) keeps it too and sets `writeFailure`; a good one clears `errors[key]`. Number keys are normalized first (`1,5` → `1.5`); an empty number is not written.
@@ -124,13 +121,13 @@ public final class SettingsModel {
             try store.setValue(text, forKey: key)
         } catch {
             // The row returns to the file's value: no stale error, no draft; the alert carries the message.
-            drafts[key] = nil
-            if errors[key] != nil { errors[key] = nil }
+            slot(key).draft = nil
+            clearError(key)
             writeFailure = (key, error.localizedDescription)
             reannounce(key)
             return
         }
-        if errors[key] != nil { errors[key] = nil }
+        clearError(key)
         refresh([key])
     }
 
@@ -168,45 +165,45 @@ public final class SettingsModel {
 
     /// A field took focus: its draft starts from the current value.
     public func beginEditing(_ key: String) {
-        if drafts[key] == nil { drafts[key] = value(key) }
+        if slot(key).draft == nil { slot(key).draft = value(key) }
     }
 
     /// The uncommitted text of the field for `key`, if it is being edited. Store changes do not touch it.
-    public func draft(_ key: String) -> String? { drafts[key] }
+    public func draft(_ key: String) -> String? { slot(key).draft }
 
     public func updateDraft(_ key: String, _ text: String) {
-        if drafts[key] != text { drafts[key] = text }
+        if slot(key).draft != text { slot(key).draft = text }
     }
 
     /// Enter or focus loss: writes the draft. An unchanged draft is dropped without a write; a rejected one
     /// stays (with `errors[key]`) until it is fixed or cancelled.
     public func commit(_ key: String) {
-        guard let draft = drafts[key] else { return }
+        guard let draft = slot(key).draft else { return }
         let text = numberKeys.contains(key) ? Self.normalizedNumber(draft) : draft
         if text == value(key) {
-            drafts[key] = nil
-            if errors[key] != nil { errors[key] = nil }
+            slot(key).draft = nil
+            clearError(key)
             return
         }
         set(key, draft)
-        if errors[key] == nil { drafts[key] = nil }
+        if slot(key).error == nil { slot(key).draft = nil }
     }
 
     /// Esc: drops the draft and the error; the field shows the store's value again.
     public func cancelEditing(_ key: String) {
-        drafts[key] = nil
-        if errors[key] != nil { errors[key] = nil }
+        if slot(key).draft != nil { slot(key).draft = nil }
+        clearError(key)
     }
 
     /// ↑/↓ in a number field: writes the current number (draft or value) plus `delta` through `set`.
     /// While editing, the draft follows a good write. Text that is not an ordinary number (`nan`, `inf`,
     /// `1e20`, words) is left alone: no step, no write, no error — `validate` judges it on commit.
     func step(_ key: String, by delta: Double) {
-        let current = Self.normalizedNumber(drafts[key] ?? value(key))
+        let current = Self.normalizedNumber(slot(key).draft ?? value(key))
         guard let number = Double(current), Self.isSteppable(number), Self.isSteppable(number + delta) else { return }
         let text = Self.format(number + delta, places: max(Self.decimalPlaces(current), Self.decimalPlaces(delta)))
         set(key, text)
-        if errors[key] == nil, drafts[key] != nil { drafts[key] = text }
+        if slot(key).error == nil, slot(key).draft != nil { slot(key).draft = text }
     }
 
     // MARK: Private
@@ -214,8 +211,8 @@ public final class SettingsModel {
     private func reset(_ keys: [String]) {
         guard !keys.isEmpty else { return }
         for key in keys {
-            drafts[key] = nil
-            if errors[key] != nil { errors[key] = nil }
+            if slot(key).draft != nil { slot(key).draft = nil }
+            clearError(key)
         }
         do {
             try store.removeValues(forKeys: keys)
@@ -227,6 +224,18 @@ public final class SettingsModel {
         refresh(keys)
     }
 
+    /// The key's state, made on first use (a view that reads a key before the store announced it still observes it).
+    private func slot(_ key: String) -> KeySlot {
+        if let slot = slots[key] { return slot }
+        let slot = KeySlot()
+        slots[key] = slot
+        return slot
+    }
+
+    private func clearError(_ key: String) {
+        if slot(key).error != nil { slot(key).error = nil }
+    }
+
     private func storeValue(_ key: String) -> String {
         store.value(forKey: key) ?? store.defaultValue(forKey: key)
     }
@@ -234,19 +243,19 @@ public final class SettingsModel {
     private func refresh(_ keys: [String]) {
         for key in keys {
             let new = storeValue(key)
-            if values[key] != new { values[key] = new }
+            if slot(key).value != new { slot(key).value = new }
         }
     }
 
     /// Records the error and re-announces the key, so a control that already moved (a switch, a menu)
     /// returns to the store's value.
     private func fail(_ key: String, _ message: String) {
-        errors[key] = message
+        slot(key).error = message
         reannounce(key)
     }
 
     private func reannounce(_ key: String) {
-        values[key] = storeValue(key)
+        slot(key).value = storeValue(key)
     }
 
     private static func decimalPlaces(_ text: String) -> Int {
@@ -272,4 +281,18 @@ public final class SettingsModel {
         if places == 0 { return String(Int(number.rounded())) }
         return String(format: "%.\(min(places, 6))f", number)
     }
+}
+
+/// One key's state in `SettingsModel`, observed apart from the other keys.
+@MainActor @Observable
+final class KeySlot {
+    /// The value as last read from the store; nil until the key was registered or announced.
+    var value: String?
+    var error: String?
+    /// Text typed into the key's field and not committed yet.
+    var draft: String?
+    /// The value the current folder sets for itself.
+    var folderOverride: String?
+    /// The store's note about the value on this machine.
+    var machineNote: SettingsNote?
 }

@@ -2,12 +2,14 @@ import SwiftUI
 
 /// A page: section headings and cards in a scroll view, and below them Reset Page to Defaults (on a page with keys).
 /// The sidebar's sub-section dot follows the scrolling; a sub-section clicked in the sidebar is scrolled to and keeps
-/// the dot until the user scrolls.
+/// the dot until the user scrolls. A page stays built while another is open (`SettingsUIState.keptPages`); only the
+/// open one moves the dot and answers sub-section clicks.
 struct PageView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
     @Environment(\.settingsStyle) private var style
     let page: SettingsPage
+    let isOpen: Bool
     @State private var sectionFrames: [String: CGRect] = [:]
     @State private var geometry: ScrollGeometry?
     @State private var position = ScrollPosition(edge: .top)
@@ -39,6 +41,7 @@ struct PageView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
+        .environment(\.settingsPageID, page.id)
         .pageBackground(style)
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, new in
@@ -51,8 +54,12 @@ struct PageView: View {
                 updateCurrentSection()
             }
         }
+        .onChange(of: isOpen) { _, open in
+            // Back on a kept page: the dot follows where it was left.
+            if open { pinned = nil; updateCurrentSection() }
+        }
         .onChange(of: ui.scrollRequest, initial: true) { _, request in
-            guard let request else { return }
+            guard isOpen, let request else { return }
             pinned = request
             ui.currentSection = request
             // Right after a page switch the sections are not laid out yet.
@@ -61,7 +68,6 @@ struct PageView: View {
                 if ui.scrollRequest == request { ui.scrollRequest = nil }
             }
         }
-        .navigationTitle(page.title)
     }
 
     /// Asks first: the page's changed settings go back to their defaults at once (`SettingsModel.resetPage`).
@@ -84,7 +90,7 @@ struct PageView: View {
     /// IINA's rule: the first section while near the top, the last at the bottom, otherwise the last section
     /// that starts above one third of the viewport.
     private func updateCurrentSection() {
-        guard let g = geometry else { return }
+        guard isOpen, let g = geometry else { return }
         let titles = page.sections.map(\.title)
         var current = titles.first ?? ""
         let top = g.contentInsets.top

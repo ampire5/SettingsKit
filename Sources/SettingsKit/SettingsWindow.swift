@@ -39,6 +39,7 @@ public final class SettingsWindowController: NSWindowController {
         window.toolbarStyle = .unified
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
+        window.autorecalculatesKeyViewLoop = true
         // Auxiliary: shown over a full-screen window, in its space. The window itself never goes full screen
         // (`toggleFullScreen` is a no-op, so ⌃⌘F and the menu item do nothing); AppKit allows only one of
         // primary/auxiliary/none, so `.fullScreenNone` cannot be kept alongside.
@@ -157,12 +158,17 @@ final class SettingsUIState {
     var scrollRequest: String?
     /// page id → ids of the rows that match the query.
     private(set) var matches: [String: Set<String>] = [:]
+    /// The pages opened so far, in the order they were first opened: their views stay in the window (hidden while
+    /// another page is open), so going back to one is instant and keeps its scroll position. Building a page's
+    /// controls again on every switch took 0.2–1.4 s of the main thread (LoupeBench settings, Intel iMac).
+    private(set) var keptPages: [String] = []
 
     init(pages: [SettingsPage], page: String?) {
         self.pages = pages
         index = SettingsSearch(pages: pages)
         self.page = pages.first { $0.id == page }?.id ?? pages.first?.id ?? ""
         currentSection = currentPage?.sections.first?.title ?? ""
+        keptPages = [self.page]
     }
 
     var currentPage: SettingsPage? { pages.first { $0.id == page } }
@@ -178,6 +184,7 @@ final class SettingsUIState {
         guard id != page else { return }
         willChangePage()
         page = id
+        if !keptPages.contains(id) { keptPages.append(id) }
         currentSection = currentPage?.sections.first?.title ?? ""
         scrollRequest = nil
         onPageChange(id)
@@ -194,7 +201,9 @@ final class SettingsUIState {
         if visible.indices.contains(j) { select(visible[j].id) }
     }
 
-    func isMatch(_ rowID: String) -> Bool { matches[page]?.contains(rowID) ?? false }
+    /// Whether the row matches the query. Rows pass their own page (`settingsPageID`), not the open one: a row that
+    /// read `page` would update on every page switch, on every kept page.
+    func isMatch(_ rowID: String, on pageID: String) -> Bool { matches[pageID]?.contains(rowID) ?? false }
 
     /// Whether the query appears in `text` (for flag items, which are not rows).
     func queryMatches(_ text: String) -> Bool {
@@ -223,9 +232,21 @@ struct SettingsRootView: View {
                 .navigationSplitViewColumnWidth(SettingsWindowController.sidebarWidth(style))
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            if let page = ui.currentPage {
-                PageView(page: page).id(page.id)
+            // Every kept page is in the stack; only the open one shows, takes clicks and is read by VoiceOver. ⇥ skips
+            // the others' controls (`SettingsWindow.selectKeyView`): disabling them instead cost 150–300 ms per switch.
+            ZStack {
+                ForEach(ui.keptPages, id: \.self) { id in
+                    if let page = ui.pages.first(where: { $0.id == id }) {
+                        let open = id == ui.page
+                        PageView(page: page, isOpen: open)
+                            .opacity(open ? 1 : 0)
+                            .allowsHitTesting(open)
+                            .accessibilityHidden(!open)
+                            .zIndex(open ? 1 : 0)
+                    }
+                }
             }
+            .navigationTitle(ui.currentPage?.title ?? "")
         }
         .toolbar(removing: .sidebarToggle)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -260,7 +281,41 @@ enum SettingsWindowPlacement {
     }
 }
 
-/// The settings window: a plain window that never goes full screen.
+/// The settings window: a plain window that never goes full screen, whose ⇥ and ⇧⇥ skip the controls of the kept
+/// pages that are not open (drawn at opacity 0, still in the view tree).
 final class SettingsWindow: NSWindow {
     override func toggleFullScreen(_ sender: Any?) {}
+
+    override func selectKeyView(following view: NSView) {
+        super.selectKeyView(following: view)
+        skipInvisible { super.selectKeyView(following: $0) }
+    }
+
+    override func selectKeyView(preceding view: NSView) {
+        super.selectKeyView(preceding: view)
+        skipInvisible { super.selectKeyView(preceding: $0) }
+    }
+
+    /// Steps on while the focused control is invisible, at most once around the loop.
+    private func skipInvisible(_ step: (NSView) -> Void) {
+        var seen = Set<ObjectIdentifier>()
+        while let view = focusedView, Self.isInvisible(view), seen.insert(ObjectIdentifier(view)).inserted {
+            step(view)
+        }
+    }
+
+    /// The focused control: a text field while its field editor has focus.
+    private var focusedView: NSView? {
+        if let editor = firstResponder as? NSText, editor.isFieldEditor { return editor.delegate as? NSView }
+        return firstResponder as? NSView
+    }
+
+    static func isInvisible(_ view: NSView) -> Bool {
+        var ancestor: NSView? = view
+        while let a = ancestor {
+            if a.isHidden || a.alphaValue == 0 || a.layer.map({ $0.opacity == 0 }) == true { return true }
+            ancestor = a.superview
+        }
+        return false
+    }
 }

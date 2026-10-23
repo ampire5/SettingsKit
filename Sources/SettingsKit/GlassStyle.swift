@@ -14,6 +14,8 @@ extension EnvironmentValues {
     @Entry var settingsStyle: SettingsStyle = .plain
     /// The window's width (0 until measured): the glass background is laid out over the whole window.
     @Entry var settingsWindowWidth: CGFloat = 0
+    /// The id of the page a row is on (set by `PageView`).
+    @Entry var settingsPageID = ""
 }
 
 /// Metrics of the glass style's sidebar panel.

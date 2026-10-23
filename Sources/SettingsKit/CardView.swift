@@ -7,6 +7,7 @@ struct CardView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
     @Environment(\.settingsStyle) private var style
+    @Environment(\.settingsPageID) private var pageID
     let card: SettingsCard
 
     /// One displayed line: a row, or one item of an open `.flags` row.
@@ -38,7 +39,7 @@ struct CardView: View {
                         if case .custom(_, let view) = row.kind {
                             view()
                                 .disabled(!enabled)
-                                .overlay { if ui.isMatch(row.id) { MatchOutline(filled: false).allowsHitTesting(false) } }
+                                .overlay { if ui.isMatch(row.id, on: pageID) { MatchOutline(filled: false).allowsHitTesting(false) } }
                         } else {
                             RowView(row: row, nested: nested, expanded: isExpanded(row)) { toggleExpanded(row) }
                                 .disabled(!enabled)
@@ -81,7 +82,7 @@ struct CardView: View {
         if ui.expanded.contains(row.id) { return true }
         guard ui.isSearching else { return false }
         switch row.kind {
-        case .group: return row.expands.flatMap(\.flattened).contains { ui.isMatch($0.id) }
+        case .group: return row.expands.flatMap(\.flattened).contains { ui.isMatch($0.id, on: pageID) }
         case .flags(_, let items): return items.contains { ui.queryMatches($0.title) }
         default: return false
         }

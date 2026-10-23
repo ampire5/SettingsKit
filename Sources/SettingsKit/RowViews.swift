@@ -9,6 +9,7 @@ struct RowView: View {
     @Environment(SettingsModel.self) private var model
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.settingsStyle) private var style
+    @Environment(\.settingsPageID) private var pageID
     let row: SettingsRow
     let nested: Bool
     let expanded: Bool
@@ -39,7 +40,7 @@ struct RowView: View {
         .padding(.trailing, 8)
         .contentShape(Rectangle())
         .gesture(TapGesture().onEnded { toggleExpanded() }, isEnabled: hasChevron)
-        .background { if ui.isMatch(row.id) { MatchOutline() } }
+        .background { if ui.isMatch(row.id, on: pageID) { MatchOutline() } }
         .contextMenu {
             if let key = row.key { Button("Reset to Default") { model.reset(key) } }
         }
@@ -87,7 +88,7 @@ struct RowView: View {
 
     /// The error of the last write in red, otherwise the description.
     private var note: Text? {
-        if let key = row.key, let error = model.errors[key] {
+        if let key = row.key, let error = model.error(key) {
             return Text(error).font(.system(size: 11)).foregroundStyle(.red)
         }
         guard let description = row.description else { return nil }
@@ -179,12 +180,122 @@ struct ChoicePicker: View {
     let items: [(word: String, title: String)]
 
     var body: some View {
-        let value = model.value(key)
-        Picker("", selection: Binding(get: { model.value(key) }, set: { model.set(key, $0) })) {
-            ForEach(items, id: \.word) { Text($0.title).tag($0.word) }
-            if !items.contains(where: { $0.word == value }) { Text(value).tag(value) }
+        ChoicePopUp(model: model, key: key, value: model.value(key), items: items)
+    }
+}
+
+/// `ChoicePicker`'s button: an `NSPopUpButton` that holds only the chosen item until its menu first opens, sized
+/// once per set of words as wide as with all of them. On macOS 26 the button measures each item at ~1 ms for its size
+/// (7 pop-ups of 33 items: 0.2 s, and 0.3 s again in a window); a SwiftUI menu `Picker` cost the same, 0.6 s of the
+/// 1.1 s that Loupe's Mouse & Trackpad page took to build (LoupeBench settings, Intel iMac). `value` is passed in, so a
+/// store change updates the button.
+struct ChoicePopUp: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
+    let model: SettingsModel
+    let key: String
+    let value: String
+    let items: [(word: String, title: String)]
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.target = context.coordinator
+        popup.action = #selector(Coordinator.picked(_:))
+        popup.menu?.delegate = context.coordinator
+        context.coordinator.popup = popup
+        context.coordinator.show(value, in: popup)
+        return popup
+    }
+
+    func updateNSView(_ popup: NSPopUpButton, context: Context) {
+        context.coordinator.parent = self
+        popup.isEnabled = isEnabled
+        context.coordinator.show(value, in: popup)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
+        context.coordinator.size(of: nsView)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor
+    final class Coordinator: NSObject, NSMenuDelegate {
+        var parent: ChoicePopUp
+        weak var popup: NSPopUpButton?
+        /// Whether the menu holds every entry (it has been opened) rather than the chosen one alone.
+        private var full = false
+        /// The button's size for `sizedWords`.
+        private var size: CGSize?
+        private var sizedWords: [String] = []
+        init(parent: ChoicePopUp) { self.parent = parent }
+
+        /// The words with their titles, plus one for a `value` outside them.
+        private func entries(_ value: String) -> [(word: String, title: String)] {
+            var entries = parent.items
+            if !entries.contains(where: { $0.word == value }) { entries.append((value, value)) }
+            return entries
         }
-        .labelsHidden().pickerStyle(.menu).fixedSize()
+
+        /// Shows `value`: selects it in the full menu (rebuilt when the words changed), or makes it the only item.
+        func show(_ value: String, in popup: NSPopUpButton) {
+            let entries = entries(value)
+            if full {
+                let words = entries.map(\.word)
+                if popup.itemArray.map({ $0.representedObject as? String ?? "" }) != words { fill(popup, entries) }
+                if let index = words.firstIndex(of: value), popup.indexOfSelectedItem != index {
+                    popup.selectItem(at: index)
+                }
+            } else {
+                let title = entries.first { $0.word == value }?.title ?? value
+                if popup.numberOfItems != 1 || popup.itemArray[0].representedObject as? String != value
+                    || popup.itemArray[0].title != title {
+                    fill(popup, [(value, title)])
+                }
+            }
+        }
+
+        private func fill(_ popup: NSPopUpButton, _ entries: [(word: String, title: String)]) {
+            popup.removeAllItems()
+            for entry in entries {
+                let item = NSMenuItem(title: entry.title, action: nil, keyEquivalent: "")
+                item.representedObject = entry.word
+                popup.menu?.addItem(item)
+            }
+        }
+
+        /// The size with every entry, measured as the size with the widest title alone (the same, to the point).
+        func size(of popup: NSPopUpButton) -> CGSize {
+            let value = popup.selectedItem?.representedObject as? String ?? parent.value
+            let entries = entries(value)
+            let words = entries.map(\.word)
+            if let size, sizedWords == words { return size }
+            let font = popup.font ?? .menuFont(ofSize: 0)
+            let width = { (title: String) in (title as NSString).size(withAttributes: [.font: font]).width }
+            let widest = entries.max { width($0.title) < width($1.title) } ?? (value, value)
+            let shown = popup.itemArray.map { ($0.representedObject as? String ?? "", $0.title) }
+            let selected = popup.indexOfSelectedItem
+            fill(popup, [widest])
+            let measured = popup.intrinsicContentSize
+            fill(popup, shown)
+            if selected >= 0, selected < popup.numberOfItems { popup.selectItem(at: selected) }
+            size = measured
+            sizedWords = words
+            return measured
+        }
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            // About to open (a click or the keyboard): every entry, the chosen one selected.
+            guard !full, let popup else { return }
+            full = true
+            show(parent.model.value(parent.key), in: popup)
+        }
+
+        @objc func picked(_ sender: NSPopUpButton) {
+            guard let word = sender.selectedItem?.representedObject as? String else { return }
+            parent.model.set(parent.key, word)
+            // A rejected write leaves the store's value: show it again.
+            show(parent.model.value(parent.key), in: sender)
+        }
     }
 }
 
@@ -547,7 +658,7 @@ struct KeyField: View {
 
     var body: some View {
         SettingsTextField(model: model, key: key, text: model.draft(key) ?? model.value(key),
-                          hasDraft: model.draft(key) != nil, invalid: model.errors[key] != nil,
+                          hasDraft: model.draft(key) != nil, invalid: model.error(key) != nil,
                           placeholder: placeholder, alignment: alignment, step: step)
     }
 }
