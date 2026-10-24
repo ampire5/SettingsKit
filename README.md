@@ -9,7 +9,8 @@ An app describes its pages as data (`SettingsPage` → `SettingsSection` → `Se
 What else is in the box:
 
 - **Row types** beyond the basics: `.color(…)` (one or more colour wells over `#rrggbb[,#rrggbb]`, with named values
-  such as `light` shown in the wells), `.icon(…)` (a pop-up of icon names with their images), and `.custom(…)` (a view
+  such as `light` shown in the wells), `.icon(…)` (the current picture with Choose…, which opens a searchable grid of
+  `IconChoice`s in a popover; thumbnails are made from the files at their size, off the main thread), and `.custom(…)` (a view
   of the app's own filling a card; the window's search asks its `searchTexts` on every query).
 - **Key-binding editor**: `KeyBindingTable(source:mouse:note:)` is a SwiftUI table of keyboard or mouse bindings with a
   filter field, «+» / «−», an edit sheet with a key recorder, «Restore Built-in» and Delete. The app supplies a
@@ -71,12 +72,16 @@ controller.show(page: nil)
 
 ### Icon picker window
 
-A grid of the app's available icons to pick the Dock icon from, for a menu item such as View › App Icon…: a click
-applies the choice at once (the app sets `NSApp.applicationIconImage` and saves the value), Esc closes it.
+A grid of the app's available icons to pick the Dock icon from, for a menu item such as View › App Icon…: the same
+grid as the `.icon` row's popover. A click (or the arrow keys and Return) applies the choice at once (the app sets
+`NSApp.applicationIconImage` and saves the value); the search field filters by name; choices are grouped by their
+`section`; with a `folder`, Show in Finder, Add… and dropping pictures on the grid copy them there, and the grid
+reloads when the folder changes. Esc closes it.
 
 ```swift
 let picker = IconPickerWindowController(title: "App Icon",
-                                        choices: { myIconChoices() },        // [(word: String, image: NSImage?)]
+                                        choices: { myIconChoices() },        // [IconChoice(word:file:section:)]
+                                        folder: myIconsFolder,
                                         current: { settings.appIcon },
                                         onPick: { settings.appIcon = $0 })
 picker.show()

@@ -120,8 +120,8 @@ struct RowView: View {
             if let key = row.key { SliderControl(key: key, range: range, marks: marks) }
         case .color(let count):
             if let key = row.key { ColorControl(key: key, count: count, names: row.colorNames) }
-        case .icon(let choices):
-            if let key = row.key { IconPicker(model: model, key: key, choices: choices) }
+        case .icon(let choices, let folder):
+            if let key = row.key { IconRowControl(key: key, choices: choices, folder: folder) }
         case .text, .custom:
             EmptyView()
         case .button(let title, let action):
@@ -431,135 +431,6 @@ struct ColorWell: View {
         // A rejected text draft must not linger beside the well's write.
         model.cancelEditing(key)
         model.set(key, text)
-    }
-}
-
-/// A pop-up of icon names with their pictures (see `IconMenu`).
-struct IconPicker: NSViewRepresentable {
-    @Environment(\.isEnabled) private var isEnabled
-    /// Passed in (not read from the environment): the coordinator's copy of this struct must have it.
-    let model: SettingsModel
-    let key: String
-    let choices: @MainActor @Sendable () -> [(word: String, image: NSImage?)]
-
-    func makeNSView(context: Context) -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = .systemFont(ofSize: 13)
-        popup.menu?.delegate = context.coordinator
-        popup.target = context.coordinator
-        popup.action = #selector(Coordinator.picked(_:))
-        context.coordinator.popup = popup
-        // The choices are read here, once per appearance, and again each time the menu opens.
-        context.coordinator.reload(model.value(key))
-        return popup
-    }
-
-    func updateNSView(_ popup: NSPopUpButton, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.parent = self
-        popup.isEnabled = isEnabled
-        coordinator.select(model.value(key))
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
-        nsView.intrinsicContentSize
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    @MainActor
-    final class Coordinator: NSObject, NSMenuDelegate {
-        var parent: IconPicker
-        weak var popup: NSPopUpButton?
-        /// The last read choices (with their original pictures).
-        private var items: [(word: String, image: NSImage?)] = []
-        init(parent: IconPicker) { self.parent = parent }
-
-        /// Reads the choices and rebuilds the menu for `value`.
-        func reload(_ value: String) {
-            items = parent.choices()
-            rebuild(value)
-        }
-
-        /// The menu items of the last read choices.
-        private func rebuild(_ value: String) {
-            guard let popup else { return }
-            let menu = popup.menu
-            menu?.removeAllItems()
-            for item in IconMenu.menuItems(items, value: value) { menu?.addItem(item) }
-            select(value)
-        }
-
-        /// Selects `value` (adding its item when the menu has none); the closed button shows a 16 pt picture.
-        func select(_ value: String) {
-            guard let popup, let menu = popup.menu else { return }
-            if !menu.items.contains(where: { $0.representedObject as? String == value }) { rebuild(value); return }
-            for item in menu.items {
-                let word = item.representedObject as? String
-                let source = items.first { $0.word == word }?.image
-                item.image = IconMenu.menuImage(source, side: word == value ? 16 : IconMenu.side)
-            }
-            if let item = menu.items.first(where: { $0.representedObject as? String == value }) {
-                popup.select(item)
-            }
-        }
-
-        func menuNeedsUpdate(_ menu: NSMenu) {
-            // About to open: fresh choices, every item at full size.
-            items = parent.choices()
-            let value = parent.model.value(parent.key)
-            menu.removeAllItems()
-            for item in IconMenu.menuItems(items, value: value) { menu.addItem(item) }
-            if let item = menu.items.first(where: { $0.representedObject as? String == value }) {
-                popup?.select(item)
-            }
-        }
-
-        func menuDidClose(_ menu: NSMenu) {
-            select(parent.model.value(parent.key))
-        }
-
-        @objc func picked(_ sender: NSPopUpButton) {
-            guard let word = sender.selectedItem?.representedObject as? String else { return }
-            parent.model.set(parent.key, word)
-            select(parent.model.value(parent.key))
-        }
-    }
-}
-
-enum IconMenu {
-    /// Picture size in a menu item.
-    static let side: CGFloat = 32
-
-    /// `image` fitted into a transparent `side` × `side` pt square (not a template).
-    static func menuImage(_ image: NSImage?, side: CGFloat = IconMenu.side) -> NSImage? {
-        guard let image, image.size.width > 0, image.size.height > 0 else { return nil }
-        let scale = min(side / image.size.width, side / image.size.height)
-        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
-        let result = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
-            image.draw(in: NSRect(x: (side - size.width) / 2, y: (side - size.height) / 2,
-                                  width: size.width, height: size.height),
-                       from: .zero, operation: .sourceOver, fraction: 1)
-            return true
-        }
-        result.isTemplate = false
-        return result
-    }
-
-    /// One menu item per choice: the word as title (a file path by its file name, the path as tooltip) and as
-    /// represented object, its picture at 32 × 32 pt; a `value` outside the choices is appended as an item of its own.
-    @MainActor static func menuItems(_ choices: [(word: String, image: NSImage?)], value: String) -> [NSMenuItem] {
-        var words = choices
-        if !words.contains(where: { $0.word == value }) { words.append((value, nil)) }
-        return words.map { choice in
-            let isPath = choice.word.contains("/")
-            let title = isPath ? (choice.word as NSString).lastPathComponent : choice.word
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            if isPath { item.toolTip = choice.word }
-            item.representedObject = choice.word
-            item.image = menuImage(choice.image)
-            return item
-        }
     }
 }
 

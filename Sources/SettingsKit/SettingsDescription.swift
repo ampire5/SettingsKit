@@ -132,8 +132,9 @@ public enum RowKind: Sendable {
     /// `count` colour wells (`ColorPicker`) and the value as text; the value is `#rrggbb`, comma-separated when
     /// `count` > 1 (`#rgb` is read too).
     case color(count: Int)
-    /// A pop-up of icon names (the value) with their images (32 pt in the menu). Asked each time the row is shown.
-    case icon(choices: @MainActor @Sendable () -> [(word: String, image: NSImage?)])
+    /// The current picture and its name, and Choose… that opens a grid of `choices` (`IconChoice`) in a popover;
+    /// `folder` is where the user's own pictures go (Show in Finder, Add…, drop; watched while the grid is open).
+    case icon(choices: @MainActor @Sendable () -> [IconChoice], folder: URL?)
     /// A push button with `title`.
     case button(title: String, action: @MainActor @Sendable () -> Void)
     /// A chevron row that expands into its `expands` rows.
@@ -211,11 +212,13 @@ public extension SettingsRow {
                     symbol: symbol, nested: nested, colorNames: names)
     }
 
-    /// A pop-up of `choices` (a word and its picture): the value is the word.
+    /// A picture picker over `choices`: the value is the chosen one's word. Only the current picture is looked up
+    /// while the row is shown; the grid reads the choices when it opens, and makes each thumbnail at its size off the
+    /// main thread.
     static func icon(_ key: String, _ title: String,
-                     choices: @escaping @MainActor @Sendable () -> [(word: String, image: NSImage?)],
+                     choices: @escaping @MainActor @Sendable () -> [IconChoice], folder: URL? = nil,
                      symbol: String? = nil, description: String? = nil, nested: [SettingsRow] = []) -> SettingsRow {
-        SettingsRow(key: key, kind: .icon(choices: choices), title: title, description: description,
+        SettingsRow(key: key, kind: .icon(choices: choices, folder: folder), title: title, description: description,
                     symbol: symbol, nested: nested)
     }
 

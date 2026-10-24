@@ -48,20 +48,14 @@ struct CustomItemTests {
     @Test func iconChoiceWritesWord() {
         let store = MemoryStore(values: ["app-icon": "owl"])
         let model = SettingsModel(store: store)
-        let row = SettingsRow.icon("app-icon", "App icon", choices: { [("owl", nil), ("horse", NSImage(size: NSSize(width: 64, height: 64)))] })
+        let row = SettingsRow.icon("app-icon", "App icon", choices: { [IconChoice(word: "owl"), IconChoice(word: "horse")] })
         model.register([page([row])])
-        guard case .icon(let choices) = row.kind else { Issue.record("not an icon row"); return }
+        guard case .icon(let choices, let folder) = row.kind else { Issue.record("not an icon row"); return }
         #expect(choices().map(\.word) == ["owl", "horse"])
+        #expect(folder == nil)
         model.set("app-icon", choices()[1].word)
         #expect(store.values["app-icon"] == "horse")
         #expect(model.value("app-icon") == "horse")
-    }
-
-    @Test func menuIconsAreScaledTo32Points() {
-        let big = NSImage(size: NSSize(width: 512, height: 256))
-        let scaled = IconMenu.menuImage(big)
-        #expect(scaled?.size == NSSize(width: 32, height: 32))
-        #expect(IconMenu.menuImage(nil) == nil)
     }
 }
 
@@ -150,29 +144,87 @@ struct DebouncerTests {
 }
 
 @MainActor
-struct IconMenuTests {
-    @Test func menuItemsCarryWordAnd32ptPicture() {
-        let big = NSImage(size: NSSize(width: 512, height: 512))
-        let items = IconMenu.menuItems([("owl", big), ("plain", nil)], value: "owl")
-        #expect(items.map(\.title) == ["owl", "plain"])
-        #expect(items.map { $0.representedObject as? String } == ["owl", "plain"])
-        #expect(items[0].image?.size == NSSize(width: 32, height: 32))
-        #expect(items[1].image == nil)
+struct IconGridTests {
+    /// A path is titled by its file name, so a long path stays readable.
+    @Test func pathIsTitledByItsFileName() {
+        #expect(IconChoice(word: "/Users/me/icons/gz1c.png").title == "gz1c.png")
+        #expect(IconChoice(word: "~/x.png").title == "x.png")
+        #expect(IconChoice(word: "owl").title == "owl")
     }
 
-    @Test func unknownValueIsAnExtraItem() {
-        let items = IconMenu.menuItems([("owl", nil)], value: "dragon")
-        #expect(items.map(\.title) == ["owl", "dragon"])
-        #expect(items[1].representedObject as? String == "dragon")
+    @Test func searchFiltersByTitleAndKeepsSections() {
+        let grid = IconGridModel(choices: {
+            [IconChoice(word: "owl", section: "Built-in"), IconChoice(word: "horse", section: "Built-in"),
+             IconChoice(word: "barn-owl", section: "Yours"), IconChoice(word: "/p/OWLET.png", section: "")]
+        }, folder: nil, current: { "owl" }, onPick: { _ in })
+        grid.reload()
+        #expect(grid.sections.map(\.title) == ["Built-in", "Yours", ""])
+        grid.query = " Owl "
+        #expect(grid.sections.map { $0.items.map(\.word) } == [["owl"], ["barn-owl"], ["/p/OWLET.png"]])
+        grid.query = "zebra"
+        #expect(grid.sections.isEmpty)
     }
 
-    /// A file path is titled by its file name (the full path is the tooltip), so the closed pop-up stays narrow.
-    @Test func pathValueIsTitledByItsFileName() {
-        let items = IconMenu.menuItems([("owl", nil)], value: "/Users/me/icons/gz1c.png")
-        #expect(items.map(\.title) == ["owl", "gz1c.png"])
-        #expect(items[1].representedObject as? String == "/Users/me/icons/gz1c.png")
-        #expect(items[1].toolTip == "/Users/me/icons/gz1c.png")
-        #expect(IconMenu.menuItems([("~/x.png", nil)], value: "owl")[0].title == "x.png")
+    @Test func pickWritesOnceAndHighlights() {
+        var picked: [String] = []
+        let grid = IconGridModel(choices: { [IconChoice(word: "owl"), IconChoice(word: "horse")] }, folder: nil,
+                                 current: { "owl" }, onPick: { picked.append($0) })
+        grid.reload()
+        #expect(grid.highlighted == "owl")
+        grid.pick("owl")
+        grid.pick("horse")
+        grid.pick("horse")
+        #expect(picked == ["horse"])
+        #expect(grid.current == "horse" && grid.highlighted == "horse")
+    }
+
+    /// Sections of 5 and 3 laid out 3 wide: rows [0 1 2] [3 4] | [5 6 7].
+    @Test func arrowsKeepTheColumnAcrossSections() {
+        let counts = [5, 3]
+        func go(_ move: IconGridNavigation.Move, _ from: Int) -> Int {
+            IconGridNavigation.index(after: move, from: from, counts: counts, columns: 3)
+        }
+        #expect(go(.right, 4) == 5 && go(.left, 5) == 4 && go(.left, 0) == 0 && go(.right, 7) == 7)
+        #expect(go(.down, 1) == 4)          // into the short last row
+        #expect(go(.down, 2) == 4)          // no cell below: the row's last
+        #expect(go(.down, 4) == 6)          // into the next section, same column
+        #expect(go(.down, 3) == 5)
+        #expect(go(.up, 6) == 4)            // back into the last row above
+        #expect(go(.up, 7) == 4)            // that row is short: its last
+        #expect(go(.up, 4) == 1 && go(.up, 1) == 1 && go(.down, 6) == 6)
+        #expect(IconGridNavigation.index(after: .down, from: 0, counts: [2, 0, 2], columns: 2) == 2)
+    }
+
+    @Test func columnsFitTheWidth() {
+        #expect(IconGridNavigation.columns(width: 500, cell: 92, spacing: 8) == 5)
+        #expect(IconGridNavigation.columns(width: 50, cell: 92, spacing: 8) == 1)
+    }
+
+    @Test func addedFilesGetSafeUniqueNames() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("icons-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("in")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let file = source.appendingPathComponent("My Icon!.PNG")
+        try Data([1]).write(to: file)
+        let folder = dir.appendingPathComponent("icons")
+        #expect(IconGridModel.copy([file], into: folder) == ["my-icon-"])
+        #expect(IconGridModel.copy([file], into: folder) == ["my-icon--2"])
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("my-icon--2.png").path))
+        #expect(!IconGridModel.isPicture(URL(fileURLWithPath: "/x/a.txt")))
+    }
+
+    /// The thumbnail is made at the size asked for, from the image of the file nearest above it, not the whole picture.
+    @Test func thumbnailIsMadeAtTheAskedSize() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("icon-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1024, pixelsHigh: 512, bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        try rep.representation(using: .png, properties: [:])!.write(to: file)
+        let image = try #require(await IconThumbnails.shared.thumbnail(of: file, pixels: 64))
+        #expect(image.width == 64 && image.height == 32)
+        #expect(await IconThumbnails.shared.thumbnail(of: URL(fileURLWithPath: "/nonexistent.png"), pixels: 64) == nil)
     }
 }
 

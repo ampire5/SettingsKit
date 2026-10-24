@@ -263,9 +263,13 @@ let colorsPage = SettingsPage("colors", "Colour and Icon", symbol: "paintpalette
     ]),
     SettingsSection("Icon", rows: [
         .icon("app-icon", "App icon", choices: {
-            [("owl", demoIcon(.systemPurple, "bird.fill")), ("horse", demoIcon(.systemOrange, "hare.fill")),
-             ("glass", demoIcon(.systemTeal, "magnifyingglass")), ("plain", nil)]
-        }, symbol: "app.badge", description: "Pictures are 32 pt in the menu."),
+            [IconChoice(word: "owl", image: demoIcon(.systemPurple, "bird.fill"), section: "Built-in"),
+             IconChoice(word: "horse", image: demoIcon(.systemOrange, "hare.fill"), section: "Built-in"),
+             IconChoice(word: "glass", image: demoIcon(.systemTeal, "magnifyingglass"), section: "Built-in"),
+             IconChoice(word: "plain", section: "Built-in")]
+                + demoIconFiles().map { IconChoice(word: $0.deletingPathExtension().lastPathComponent, file: $0, section: "Yours") }
+        }, folder: demoIconFolder, symbol: "app.badge",
+              description: "Choose… opens the grid; pictures added to the demo's icons folder show under Yours."),
     ]),
 ])
 
@@ -450,4 +454,13 @@ MainActor.assumeIsolated {
     let delegate = AppDelegate()
     NSApplication.shared.delegate = delegate
     NSApplication.shared.run()
+}
+
+/// The demo's own icons folder (in the temporary directory): what Add… and a drop copy into.
+let demoIconFolder = FileManager.default.temporaryDirectory.appendingPathComponent("settings-demo-icons", isDirectory: true)
+
+func demoIconFiles() -> [URL] {
+    let files = (try? FileManager.default.contentsOfDirectory(at: demoIconFolder, includingPropertiesForKeys: nil)) ?? []
+    return files.filter { ["png", "icns", "jpg", "jpeg", "heic", "tif", "tiff"].contains($0.pathExtension.lowercased()) }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
 }
