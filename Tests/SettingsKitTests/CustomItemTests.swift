@@ -178,6 +178,32 @@ struct IconGridTests {
         #expect(grid.current == "horse" && grid.highlighted == "horse")
     }
 
+    @Test func packTileOpensPackBeforePickingAnIcon() throws {
+        let pack = "/icons/flat"
+        let first = "\(pack)/01.png", second = "\(pack)/02.png"
+        var picked: [String] = []
+        let grid = IconGridModel(choices: {
+            [IconChoice(word: "owl", section: "Built-in"),
+             IconChoice(word: first, section: "flat", pack: pack),
+             IconChoice(word: second, section: "flat", pack: pack)]
+        }, folder: nil, current: { second }, onPick: { picked.append($0) })
+        grid.reload()
+
+        let packTile = try #require(grid.sections.flatMap(\.items).first { $0.isPack })
+        #expect(packTile.title == "flat")
+        #expect(grid.highlighted == packTile.word)
+        grid.activate(packTile.word)
+        #expect(grid.openPack == pack)
+        #expect(grid.sections.flatMap(\.items).map(\.word) == [first, second])
+        #expect(picked.isEmpty)
+
+        grid.activate(first)
+        #expect(picked == [first])
+        grid.closePack()
+        #expect(grid.openPack == nil)
+        #expect(grid.highlighted == packTile.word)
+    }
+
     /// Sections of 5 and 3 laid out 3 wide: rows [0 1 2] [3 4] | [5 6 7].
     @Test func arrowsKeepTheColumnAcrossSections() {
         let counts = [5, 3]

@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// A window to pick the app's Dock icon from: the picture grid (`IconGridView`) — search, sections, the current one
-/// ringed, arrow keys and Return, and with a `folder` its Show in Finder, Add… and drop. A click applies it at once
-/// (the Dock shows it, so there is nothing to confirm); Esc or the close button closes the window. The app keeps one
-/// and calls `show()` from a menu item.
+/// A window to pick the app's Dock icon from: the picture grid (`IconGridView`) — search, sections, packs, the current
+/// one ringed, arrow keys and Return, and with a `folder` its Show in Finder, Add… and drop. A picture click applies it
+/// at once (the Dock shows it, so there is nothing to confirm); a pack opens its pictures. Esc or the close button
+/// closes the window. The app keeps one and calls `show()` from a menu item.
 ///
 ///     let picker = IconPickerWindowController(title: "App Icon",
 ///                                             choices: { Settings.appIconChoices() },     // [IconChoice]
@@ -47,8 +47,9 @@ public final class IconPickerWindowController: NSWindowController {
 
     /// Reads the choices again and brings the window to the front.
     public func show() {
+        model.resetNavigation()
         model.reload()
-        model.scrollTarget = model.current
+        model.scrollTarget = model.highlighted
         if window?.isVisible != true { window?.center() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

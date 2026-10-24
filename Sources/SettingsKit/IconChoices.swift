@@ -3,8 +3,7 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One picture an icon setting can take: the value written (`word`), where its picture is and the heading it goes
-/// under in the grid.
+/// One picture an icon setting can take, or a pack tile that opens a group of pictures.
 public struct IconChoice {
     /// The value written to the store.
     public var word: String
@@ -15,16 +14,26 @@ public struct IconChoice {
     public var image: NSImage?
     /// The heading the choice goes under in the grid ("Built-in", "Yours"); headings show when there is more than one.
     public var section: String
+    /// The directory pack this picture belongs to; nil for built-in and ungrouped choices.
+    public var pack: String?
+    /// Whether this is the pack tile that opens `pack`, rather than a selectable picture.
+    public var isPack: Bool
+    /// A label override for pack tiles.
+    public var displayName: String?
 
-    public init(word: String, file: URL? = nil, image: NSImage? = nil, section: String = "") {
+    public init(word: String, file: URL? = nil, image: NSImage? = nil, section: String = "",
+                pack: String? = nil, isPack: Bool = false, displayName: String? = nil) {
         self.word = word
         self.file = file
         self.image = image
         self.section = section
+        self.pack = pack
+        self.isPack = isPack
+        self.displayName = displayName
     }
 
     /// The name shown: a file path by its file name, so a long path stays readable.
-    public var title: String { IconChoice.title(of: word) }
+    public var title: String { displayName ?? IconChoice.title(of: word) }
 
     static func title(of word: String) -> String {
         word.contains("/") ? (word as NSString).lastPathComponent : word
@@ -209,6 +218,7 @@ final class IconGridModel {
     var items: [IconChoice] = []
     var current = ""
     var query = ""
+    var openPack: String?
     /// The word of the cell the arrow keys and Return act on.
     var highlighted: String?
     /// A word to scroll to (the highlighted cell after a key, a file just added).
@@ -218,7 +228,7 @@ final class IconGridModel {
     @ObservationIgnored private let choices: @MainActor () -> [IconChoice]
     @ObservationIgnored private let value: @MainActor () -> String
     @ObservationIgnored private let onPick: @MainActor (String) -> Void
-    @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var watchers: [DispatchSourceFileSystemObject] = []
     @ObservationIgnored private var pendingReload: DispatchWorkItem?
 
     init(choices: @escaping @MainActor () -> [IconChoice], folder: URL?, current: @escaping @MainActor () -> String,
@@ -233,18 +243,65 @@ final class IconGridModel {
     func reload() {
         items = choices()
         current = value()
-        if highlighted.map({ word in !items.contains { $0.word == word } }) ?? true { highlighted = current }
+        let visible = visibleItems
+        if highlighted.map({ word in !visible.contains { $0.word == word } }) ?? true {
+            let selected = items.first { $0.word == current }
+            highlighted = selected?.pack.flatMap { pack in visible.first { $0.isPack && $0.pack == pack }?.word }
+                ?? current
+        }
+    }
+
+    func resetNavigation() {
+        openPack = nil
+        query = ""
+    }
+
+    /// The visible choices: ordinary icons and one tile per pack, or the pictures inside the open pack.
+    private var visibleItems: [IconChoice] {
+        if let openPack { return items.filter { $0.pack == openPack && !$0.isPack } }
+        let pictures = items.filter { $0.pack == nil && !$0.isPack }
+        let grouped = Dictionary(grouping: items.filter { $0.pack != nil && !$0.isPack }, by: { $0.pack ?? "" })
+        let packs = grouped.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.compactMap { key -> IconChoice? in
+            guard let first = grouped[key]?.first else { return nil }
+            let title = URL(fileURLWithPath: key).lastPathComponent
+            return IconChoice(word: "pack:\(key)", file: first.file, image: first.image, section: "Packs",
+                              pack: key, isPack: true, displayName: title)
+        }
+        return pictures + packs
     }
 
     /// The choices matching the search, by section in their order.
     var sections: [(title: String, items: [IconChoice])] {
         let words = query.trimmingCharacters(in: .whitespaces).lowercased()
         var result: [(title: String, items: [IconChoice])] = []
-        for item in items where words.isEmpty || item.title.lowercased().contains(words) {
+        for item in visibleItems where words.isEmpty || item.title.lowercased().contains(words) {
             if let i = result.firstIndex(where: { $0.title == item.section }) { result[i].items.append(item) }
             else { result.append((item.section, [item])) }
         }
         return result
+    }
+
+    /// Opens a pack tile or picks a picture.
+    func activate(_ word: String) {
+        guard let item = visibleItems.first(where: { $0.word == word }) else { return }
+        if item.isPack, let pack = item.pack {
+            openPack = pack
+            query = ""
+            highlighted = items.first(where: { $0.pack == pack && $0.word == current })?.word
+                ?? items.first(where: { $0.pack == pack && !$0.isPack })?.word
+            scrollTarget = highlighted
+            return
+        }
+        pick(word)
+    }
+
+    /// Returns from a pack to the pack list.
+    func closePack() {
+        guard let pack = openPack else { return }
+        openPack = nil
+        query = ""
+        highlighted = visibleItems.first(where: { $0.isPack && $0.pack == pack })?.word
+        scrollTarget = highlighted
     }
 
     func pick(_ word: String) {
@@ -282,7 +339,8 @@ final class IconGridModel {
         panel.treatsFilePackagesAsDirectories = false
         panel.allowedContentTypes = Self.types
         panel.prompt = "Add"
-        panel.message = "Pictures to add to the icons folder"
+        panel.message = openPack.map { "Pictures to add to the \(URL(fileURLWithPath: $0).lastPathComponent) pack" }
+            ?? "Pictures to add to the icons folder"
         guard panel.runModal() == .OK else { return }
         add(panel.urls)
     }
@@ -293,12 +351,20 @@ final class IconGridModel {
         guard let folder else { return }
         let pictures = urls.filter(Self.isPicture)
         guard !pictures.isEmpty else { return }
+        let destination = openPack.map { folder.appendingPathComponent(URL(fileURLWithPath: $0).lastPathComponent,
+                                                                        isDirectory: true) } ?? folder
         Task {
-            let added = await Task.detached(priority: .userInitiated) { Self.copy(pictures, into: folder) }.value
+            let added = await Task.detached(priority: .userInitiated) { Self.copy(pictures, into: destination) }.value
             reload()
-            if let first = added.first, items.contains(where: { $0.word == first }) {
-                highlighted = first
-                scrollTarget = first
+            if let first = added.first {
+                let stem = URL(fileURLWithPath: first).lastPathComponent
+                if let item = items.first(where: {
+                    $0.pack == openPack
+                        && URL(fileURLWithPath: $0.word).deletingPathExtension().lastPathComponent == stem
+                }) {
+                    highlighted = item.word
+                    scrollTarget = item.word
+                }
             }
         }
     }
@@ -332,20 +398,26 @@ final class IconGridModel {
 
     /// Watches the folder while the grid is shown: a file added, removed or renamed there reloads the choices.
     func startWatching() {
-        guard watcher == nil, let folder else { return }
-        let fd = open(folder.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
-                                                               queue: .main)
-        source.setEventHandler { [weak self] in self?.scheduleReload() }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        watcher = source
+        guard watchers.isEmpty, let folder else { return }
+        let children = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        let watched = [folder] + children.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        watchers = watched.compactMap { url in
+            let fd = open(url.path, O_EVTONLY)
+            guard fd >= 0 else { return nil }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd,
+                                                                   eventMask: [.write, .rename, .delete], queue: .main)
+            source.setEventHandler { [weak self] in self?.scheduleReload() }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            return source
+        }
     }
 
     func stopWatching() {
-        watcher?.cancel()
-        watcher = nil
+        for watcher in watchers { watcher.cancel() }
+        watchers.removeAll()
         pendingReload?.cancel()
     }
 
@@ -358,9 +430,9 @@ final class IconGridModel {
     }
 }
 
-/// The picture grid: a search field and the folder's buttons above, the choices by section below, the current one
-/// ringed. A click picks; the arrow keys move the highlight and Return picks it; pictures dropped on the grid are
-/// added to the folder. `onPicked` is told after a pick (a popover closes).
+/// The picture grid: a search field and the folder's buttons above, choices by section below, the current one ringed.
+/// Pack tiles open; picture clicks pick. Arrow keys move the highlight and Return activates it. Pictures dropped on the
+/// grid are added to the folder. `onPicked` is told after a picture pick (a popover closes).
 struct IconGridView: View {
     let model: IconGridModel
     var side: CGFloat = 72
@@ -375,6 +447,12 @@ struct IconGridView: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             HStack(spacing: 8) {
+                if let pack = model.openPack {
+                    Button { model.closePack() } label: { Image(systemName: "chevron.left") }
+                        .help("Back to icon packs")
+                    Text(URL(fileURLWithPath: pack).lastPathComponent)
+                        .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                }
                 TextField("Search", text: $model.query)
                     .textFieldStyle(.roundedBorder)
                     .focused($focus, equals: .search)
@@ -384,7 +462,9 @@ struct IconGridView: View {
                     Button { model.revealFolder() } label: { Image(systemName: "folder") }
                         .help("Show the icons folder in the Finder")
                     Button { model.addWithPanel() } label: { Image(systemName: "plus") }
-                        .help("Add pictures to the icons folder (or drop them on the grid)")
+                        .help(model.openPack.map {
+                            "Add pictures to the \(URL(fileURLWithPath: $0).lastPathComponent) pack (or drop them on the grid)"
+                        } ?? "Add pictures to the icons folder (or drop them on the grid)")
                 }
             }
             .padding(.horizontal, padding)
@@ -393,8 +473,9 @@ struct IconGridView: View {
             grid
         }
         .onAppear {
+            model.resetNavigation()
             model.reload()
-            model.scrollTarget = model.current
+            model.scrollTarget = model.highlighted
             model.startWatching()
             focus = .grid
         }
@@ -419,10 +500,16 @@ struct IconGridView: View {
                         }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: cellWidth), spacing: spacing)], spacing: 10) {
                             ForEach(section.items, id: \.word) { item in
-                                IconCell(item: item, side: side, selected: item.word == model.current,
+                                let selected = item.isPack
+                                    ? model.items.contains { $0.pack == item.pack && $0.word == model.current }
+                                    : item.word == model.current
+                                IconCell(item: item, side: side, selected: selected,
                                          highlighted: item.word == model.highlighted && focus == .grid)
                                     .id(item.word)
-                                    .onTapGesture { model.pick(item.word); onPicked() }
+                                    .onTapGesture {
+                                        model.activate(item.word)
+                                        if !item.isPack { onPicked() }
+                                    }
                             }
                         }
                     }
@@ -468,8 +555,9 @@ struct IconGridView: View {
 
     private func pickHighlighted() {
         guard let word = model.highlighted ?? model.sections.first?.items.first?.word else { return }
-        model.pick(word)
-        onPicked()
+        let item = model.sections.flatMap(\.items).first { $0.word == word }
+        model.activate(word)
+        if item?.isPack != true { onPicked() }
     }
 }
 
@@ -491,6 +579,16 @@ private struct IconCell: View {
                     RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
                         .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 3)
                 )
+                .overlay(alignment: .bottomTrailing) {
+                    if item.isPack {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
+                            .background(.regularMaterial, in: Circle())
+                            .padding(5)
+                    }
+                }
             Text(item.title)
                 .font(.caption)
                 .lineLimit(1)
@@ -499,7 +597,7 @@ private struct IconCell: View {
         }
         .frame(width: side + 20)
         .contentShape(Rectangle())
-        .help(item.word)
+        .help(item.isPack ? "Open the \(item.title) icon pack" : item.word)
     }
 }
 
