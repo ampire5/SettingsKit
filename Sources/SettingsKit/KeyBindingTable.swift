@@ -67,6 +67,42 @@ public struct KeyBindingRefusal: Error, Equatable, Sendable {
     func remove(rowID: String) throws
     /// «Restore Built-in»: the file's line for the input is commented out.
     func restoreBuiltIn(rowID: String) throws
+    /// The step an action that `takesStep` accepts, and the one the sheet offers; `.standard` by default.
+    func stepRule(for actionID: String) -> KeyBindingStep
+}
+
+public extension KeyBindingSource {
+    func stepRule(for actionID: String) -> KeyBindingStep { .standard }
+}
+
+/// What the sheet's step field takes for an action: a size within `range`, negative too when `signed`.
+public struct KeyBindingStep: Equatable, Sendable {
+    /// The size of the step (its absolute value).
+    public let range: ClosedRange<Double>
+    /// What the field shows for the action when it holds no step that fits.
+    public let defaultValue: Double
+    /// A negative step (one that lowers) is allowed.
+    public let signed: Bool
+
+    /// 0.01–1 either way, 0.05 offered: an amount or a strength.
+    public static let standard = KeyBindingStep(range: 0.01...1, defaultValue: 0.05, signed: true)
+
+    public init(range: ClosedRange<Double>, defaultValue: Double, signed: Bool) {
+        self.range = range
+        self.defaultValue = defaultValue
+        self.signed = signed
+    }
+
+    /// The line beside the field: «0.01–1; negative lowers», «1–600».
+    public var hint: String {
+        let span = "\(KeyBindingDraft.text(range.lowerBound))–\(KeyBindingDraft.text(range.upperBound))"
+        return signed ? span + "; negative lowers" : span
+    }
+
+    /// Whether `step` is one the action takes.
+    public func accepts(_ step: Double) -> Bool {
+        step.isFinite && range.contains(abs(step)) && (signed || step > 0)
+    }
 }
 
 /// A table of bindings (keys or mouse) with a filter field above it, «+» and «−» below it, a sheet on «+» and on a

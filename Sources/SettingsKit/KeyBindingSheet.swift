@@ -47,12 +47,24 @@ public struct KeyBindingDraft: Identifiable, Equatable {
         return source.actionGroups().contains { $0.actions.contains { $0.id == actionID && $0.takesStep } }
     }
 
-    /// The step of an action that takes one, when the field holds 0.01…1 in size (either sign); nil otherwise.
+    /// The step of an action that takes one, when the field holds one its `stepRule` accepts; nil otherwise.
     @MainActor public func step(in source: KeyBindingSource) -> Double? {
-        guard takesStep(in: source) else { return nil }
-        let text = stepText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
-        guard let step = Double(text), step.isFinite, (0.01...1).contains(abs(step)) else { return nil }
+        guard takesStep(in: source), let actionID, let step = Self.number(stepText),
+              source.stepRule(for: actionID).accepts(step) else { return nil }
         return step
+    }
+
+    /// Picks the action; one that takes a step gets its rule's default unless the field already holds a step it takes.
+    @MainActor public mutating func choose(actionID: String?, in source: KeyBindingSource) {
+        self.actionID = actionID
+        guard let actionID, takesStep(in: source) else { return }
+        let rule = source.stepRule(for: actionID)
+        if !(Self.number(stepText).map(rule.accepts) ?? false) { stepText = Self.text(rule.defaultValue) }
+    }
+
+    /// The field's text as a number (a comma decimal is read with a dot).
+    private static func number(_ text: String) -> Double? {
+        Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
     }
 
     /// An input, an action, and a good step when the action takes one.
@@ -163,10 +175,10 @@ struct KeyBindingSheet: View {
                     GridRow {
                         Text("Step:")
                         HStack(spacing: 8) {
-                            TextField("0.05", text: $draft.stepText)
+                            TextField(KeyBindingDraft.text(stepRule.defaultValue), text: $draft.stepText)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 72)
-                            Text("0.01–1; negative lowers")
+                            Text(stepRule.hint)
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     }
@@ -182,6 +194,9 @@ struct KeyBindingSheet: View {
             }
         }
     }
+
+    /// The chosen action's step rule (the sheet asks only while it takes a step).
+    private var stepRule: KeyBindingStep { draft.actionID.map(source.stepRule) ?? .standard }
 
     /// The refusal of the last press in red, otherwise what the input does now.
     private var note: Text? {
@@ -217,7 +232,7 @@ struct KeyBindingSheet: View {
     }
 
     private var actionPicker: some View {
-        Picker("", selection: $draft.actionID) {
+        Picker("", selection: Binding(get: { draft.actionID }, set: { draft.choose(actionID: $0, in: source) })) {
             if draft.actionID == nil { Text("Choose…").tag(String?.none) }
             ForEach(source.actionGroups(), id: \.group) { group in
                 Section(group.group) {

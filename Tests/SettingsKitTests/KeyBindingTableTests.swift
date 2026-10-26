@@ -14,7 +14,12 @@ class FakeBindingSource: KeyBindingSource {
     func rows() -> [KeyBindingRowModel] { table }
     func actionGroups() -> [(group: String, actions: [(id: String, title: String, takesStep: Bool)])] {
         [("Zoom", [("fit", "Fit to window", false), ("fill", "Fill the window", false)]),
-         ("Colour", [("add vibrance-amount", "Vibrance amount", true)])]
+         ("Colour", [("add vibrance-amount", "Vibrance amount", true)]),
+         ("Seeking", [("seek", "Seek", true)])]
+    }
+    /// `seek` steps by 1–600 (seconds, forward only); the rest by the standard rule.
+    func stepRule(for actionID: String) -> KeyBindingStep {
+        actionID == "seek" ? KeyBindingStep(range: 1...600, defaultValue: 5, signed: false) : .standard
     }
     func mouseButtons() -> [(id: String, title: String)] { [("MBTN_MID", "Middle"), ("MX_PANEL", "Panel")] }
     func pressKinds(for button: String) -> [(id: String, title: String, enabled: Bool)] {
@@ -124,6 +129,52 @@ struct KeyBindingTableTests {
         #expect(source.bound.last?.input == "g")
         #expect(source.bound.last?.action == "add vibrance-amount")
         #expect(source.bound.last?.step == -0.05)
+    }
+
+    @Test func aSourceRangeAcceptsLargeSteps() {
+        let source = FakeBindingSource(rows)
+        var draft = KeyBindingDraft(isMouse: false)
+        draft.input = "g"
+        draft.actionID = "seek"
+        draft.stepText = "120"
+        #expect(draft.step(in: source) == 120)
+        for bad in ["-5", "0.5", "601"] {
+            draft.stepText = bad
+            #expect(draft.step(in: source) == nil, "\(bad)")
+        }
+    }
+
+    @Test func theStandardRuleIsUnchanged() {
+        let source = FakeBindingSource(rows)
+        var draft = KeyBindingDraft(isMouse: false)
+        draft.actionID = "add vibrance-amount"
+        draft.stepText = "0.05"
+        #expect(draft.step(in: source) == 0.05)
+        draft.stepText = "-0.1"
+        #expect(draft.step(in: source) == -0.1)
+        draft.stepText = "2"
+        #expect(draft.step(in: source) == nil)
+    }
+
+    @Test func choosingAnActionPutsItsDefaultWhenTheFieldDoesNotFit() {
+        let source = FakeBindingSource(rows)
+        var draft = KeyBindingDraft(isMouse: false)
+        #expect(draft.stepText == "0.05")
+        draft.choose(actionID: "seek", in: source)
+        #expect(draft.actionID == "seek")
+        #expect(draft.stepText == "5")
+        draft.stepText = "30"
+        draft.choose(actionID: "seek", in: source)
+        #expect(draft.stepText == "30")               // a fitting value is kept
+        draft.choose(actionID: "add vibrance-amount", in: source)
+        #expect(draft.stepText == "0.05")
+        draft.choose(actionID: "fit", in: source)       // no step: the field is left alone
+        #expect(draft.stepText == "0.05")
+    }
+
+    @Test func hints() {
+        #expect(KeyBindingStep.standard.hint == "0.01–1; negative lowers")
+        #expect(KeyBindingStep(range: 1...600, defaultValue: 5, signed: false).hint == "1–600")
     }
 
     @Test func mouseDraftPicksAnEnabledKind() {
