@@ -163,15 +163,21 @@ struct PageView: View {
 enum PagePieces {
     /// Main-thread time one piece may take: input waits at most this long, plus a frame's drawing.
     static let budget = 10.0
+    /// The lowest cost per line the estimate goes to (an M4 Max builds a plain row in ~2 ms).
+    static let minPerLine = 2.0
     /// ms of main-thread CPU per line, as measured; starts high (an Intel Mac's 15–25 ms) and learns.
     private(set) static var perLine = 20.0
     /// The piece in flight: when it was asked for and how many lines it has.
     private static var pending: (cpu: Double, lines: Int)?
 
-    /// The lines shown at once when a page is first opened: half a piece, as the page itself is made in that turn too.
-    static var firstPiece: Int { max(1, Int(budget / 2 / perLine)) }
+    /// The most lines in one piece: cheap pieces (nested rows, plain switches) teach a low cost per line, and a
+    /// piece sized by it that then meets heavy rows (pop-ups, fields) took 50–120 ms on an M4 Max.
+    static let maxLines = 4
 
-    private static var linesInBudget: Int { max(1, Int(budget / perLine)) }
+    /// The lines shown at once when a page is first opened: half a piece, as the page itself is made in that turn too.
+    static var firstPiece: Int { min(maxLines / 2, max(1, Int(budget / 2 / perLine))) }
+
+    private static var linesInBudget: Int { min(maxLines, max(1, Int(budget / perLine))) }
 
     /// The lines of the next piece; the previous piece's cost (if one is in flight) updates the estimate.
     static func nextPiece() -> Int {
@@ -192,7 +198,7 @@ enum PagePieces {
         guard lines > 0, ms > 0 else { return }
         // A piece whose turn the machine spent elsewhere (another window, a sleep) says little: cap its weight.
         let measured = min(ms / Double(lines), 100)
-        perLine = perLine * 0.6 + measured * 0.4
+        perLine = max(minPerLine, perLine * 0.6 + measured * 0.4)
     }
 
     /// A card's lines: its rows and their nested rows (not the rows behind chevrons). A `.custom` row (a table, say)
