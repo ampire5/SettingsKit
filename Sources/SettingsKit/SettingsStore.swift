@@ -15,10 +15,34 @@ public protocol SettingsStore: AnyObject {
     func removeValues(forKeys keys: [String]) throws
     /// The value set for the current folder only, if any.
     func folderOverride(forKey key: String) -> String?
+    /// The value a level below the store sets for what is on screen (a folder, a file), and how the row names that
+    /// level. The default is `folderOverride(forKey:)` as «This folder».
+    func override(forKey key: String) -> SettingsOverride?
+    /// «Use Default»: the level `override(forKey:)` shows drops its value of `key`.
     func clearFolderOverride(forKey key: String)
     /// What the store has to say about `key`'s current value on this machine (too many threads for the cores, a
     /// cache larger than the memory), or nil when the value is fine.
     func machineNote(forKey key: String) -> SettingsNote?
+}
+
+/// A value set below the store for what is on screen, shown under the row as «<label>: <value>» with «Use Default».
+public struct SettingsOverride: Equatable, Sendable {
+    /// As the store writes it; the row shows it as it shows its own value.
+    public let value: String
+    /// The level: «This folder», «This file», «Folder Shoot».
+    public let label: String
+    /// SF Symbol before the label.
+    public let symbol: String
+    /// The label's tooltip.
+    public let help: String
+
+    public init(value: String, label: String = "This folder", symbol: String = "folder",
+                help: String = "The folder of the photo on screen has its own value; the setting above applies elsewhere") {
+        self.value = value
+        self.label = label
+        self.symbol = symbol
+        self.help = help
+    }
 }
 
 /// A remark under a row about its value on this Mac: «harmful» values do not take effect as written, «suboptimal»
@@ -45,6 +69,7 @@ public extension SettingsStore {
     }
 
     func folderOverride(forKey key: String) -> String? { nil }
+    func override(forKey key: String) -> SettingsOverride? { folderOverride(forKey: key).map { SettingsOverride(value: $0) } }
     func clearFolderOverride(forKey key: String) {}
     func machineNote(forKey key: String) -> SettingsNote? { nil }
 }

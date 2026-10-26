@@ -25,8 +25,8 @@ struct RowView: View {
                         .padding(.vertical, 2)
                 }
                 if let note { note }
-                if let key = row.key, let value = model.folderOverride(key) {
-                    FolderNote(key: key, text: FolderNote.text(value, row: row))
+                if let key = row.key, let level = model.override(key) {
+                    FolderNote(key: key, level: level, title: FolderNote.title(level, row: row))
                 }
                 if let key = row.key, let machine = model.machineNote(key) {
                     MachineNote(key: key, note: machine)
@@ -475,25 +475,36 @@ struct MachineNote: View {
     }
 }
 
-/// Under a row whose key the current folder sets for itself: «This folder: <value>» and «Use Default», which drops
-/// the folder's value (the file's value applies there again).
+/// Under a row whose key a level below the store sets (the current folder, a file): «This folder: <value>» and «Use
+/// Default», which drops that level's value (the store's value applies there again, or the next level's).
 struct FolderNote: View {
     @Environment(SettingsModel.self) private var model
     @Environment(\.settingsStyle) private var style
     let key: String
-    /// The folder's value as the row names it.
-    let text: String
+    let level: SettingsOverride
+    /// «<label>: <value as the row names it>».
+    let title: String
 
     var body: some View {
         HStack(spacing: 8) {
-            Label("This folder: \(text)", systemImage: "folder")
+            Label(title, systemImage: level.symbol)
                 .font(.system(size: 11))
                 .foregroundStyle(style.secondaryText)
-                .help("The folder of the photo on screen has its own value; the setting above applies elsewhere")
+                .help(level.help)
             Button("Use Default") { model.clearFolderOverride(key) }
                 .controlSize(.small)
-                .help("Drop this folder's own value")
+                .help("Drop \(Self.lowercasedFirst(level.label))'s own value")
         }
+    }
+
+    /// The note's line: the level's label and the value as the row shows it.
+    static func title(_ level: SettingsOverride, row: SettingsRow) -> String {
+        "\(level.label): \(text(level.value, row: row))"
+    }
+
+    /// «This folder» → «this folder», for the button's tooltip.
+    static func lowercasedFirst(_ label: String) -> String {
+        label.prefix(1).lowercased() + label.dropFirst()
     }
 
     /// The value as the row shows it: a pop-up's item title, On / Off for a switch, otherwise as written.

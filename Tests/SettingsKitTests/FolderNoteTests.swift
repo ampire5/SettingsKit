@@ -39,6 +39,28 @@ struct FolderNoteTests {
         #expect(store.values.isEmpty)
     }
 
+    @Test func aStoreWithOnlyFolderOverrideGetsThisFolder() {
+        let store = MemoryStore(values: [:], defaults: ["upscale": "lanczos3"])
+        store.folder = ["upscale": "bilinear"]
+        let model = SettingsModel(store: store)
+        model.register([page([.text("upscale", "Upscale")])])
+        #expect(model.override("upscale") == SettingsOverride(value: "bilinear"))
+        #expect(model.override("upscale")?.label == "This folder")
+        #expect(model.override("upscale")?.symbol == "folder")
+    }
+
+    @Test func aStoreLabelIsShown() {
+        let store = MemoryStore(values: [:], defaults: ["vibrance": "no"])
+        store.overrides = ["vibrance": SettingsOverride(value: "yes", label: "This file", symbol: "doc", help: "h")]
+        let model = SettingsModel(store: store)
+        let toggle = SettingsRow.toggle("vibrance", "Vibrance")
+        model.register([page([toggle])])
+        let shown = model.override("vibrance")
+        #expect(shown?.label == "This file")
+        #expect(model.folderOverride("vibrance") == "yes")
+        #expect(shown.map { FolderNote.title($0, row: toggle) } == "This file: On")
+    }
+
     @Test func folderNoteNamesTheChoice() {
         let choice = SettingsRow.choice("upscale", "Upscale", [("bilinear", "Bilinear"), ("lanczos3", "Lanczos-3")])
         #expect(FolderNote.text("bilinear", row: choice) == "Bilinear")
