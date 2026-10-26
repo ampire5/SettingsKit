@@ -120,8 +120,8 @@ struct RowView: View {
             if let key = row.key { SliderControl(key: key, range: range, marks: marks) }
         case .color(let count):
             if let key = row.key { ColorControl(key: key, count: count, names: row.colorNames) }
-        case .icon(let choices, let folder, let current):
-            if let key = row.key { IconRowControl(key: key, choices: choices, folder: folder, lookup: current) }
+        case .icon(let choices, let folder):
+            if let key = row.key { IconRowControl(key: key, choices: choices, folder: folder, lookup: row.iconLookup) }
         case .text, .custom:
             EmptyView()
         case .button(let title, let action):
