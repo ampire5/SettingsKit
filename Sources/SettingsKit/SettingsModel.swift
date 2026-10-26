@@ -59,12 +59,16 @@ public final class SettingsModel {
 
     // MARK: Folder
 
-    /// The value the current folder sets for `key` itself, or nil (the row then shows no folder note). Asked of the
-    /// store on `register`, on every announcement of the store and on `refreshFolderOverrides()`.
-    public func folderOverride(_ key: String) -> String? { slot(key).folderOverride }
+    /// The value a level below the store (the current folder, a file) sets for `key`, with the level's name, or nil
+    /// (the row then shows no note). Asked of the store on `register`, on every announcement of the store and on
+    /// `refreshFolderOverrides()`.
+    public func override(_ key: String) -> SettingsOverride? { slot(key).override }
 
-    /// «Use Default»: the folder drops its own value of `key` (the store's `clearFolderOverride`); the file is not
-    /// written.
+    /// The value of `override(_:)`.
+    public func folderOverride(_ key: String) -> String? { slot(key).override?.value }
+
+    /// «Use Default»: the level shown drops its own value of `key` (the store's `clearFolderOverride`); the file is
+    /// not written.
     public func clearFolderOverride(_ key: String) {
         store.clearFolderOverride(forKey: key)
         refreshFolderOverrides()
@@ -76,8 +80,8 @@ public final class SettingsModel {
     public func refreshFolderOverrides() {
         for key in registeredKeys {
             let slot = slot(key)
-            let value = store.folderOverride(forKey: key), note = store.machineNote(forKey: key)
-            if slot.folderOverride != value { slot.folderOverride = value }
+            let value = store.override(forKey: key), note = store.machineNote(forKey: key)
+            if slot.override != value { slot.override = value }
             if slot.machineNote != note { slot.machineNote = note }
         }
     }
@@ -291,8 +295,8 @@ final class KeySlot {
     var error: String?
     /// Text typed into the key's field and not committed yet.
     var draft: String?
-    /// The value the current folder sets for itself.
-    var folderOverride: String?
+    /// The value a level below the store sets (the current folder, a file).
+    var override: SettingsOverride?
     /// The store's note about the value on this machine.
     var machineNote: SettingsNote?
 }

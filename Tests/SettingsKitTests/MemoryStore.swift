@@ -16,6 +16,8 @@ final class MemoryStore: SettingsStore {
     var removedBatches: [[String]] = []
     /// The keys `clearFolderOverride` was called with, in order.
     var clearedFolderKeys: [String] = []
+    /// Levels with a label of their own (`override`); a key not here falls back to `folder`.
+    var overrides: [String: SettingsOverride] = [:]
     /// The store's machine notes by key (`machineNote`).
     var notes: [String: SettingsNote] = [:]
 
@@ -43,6 +45,9 @@ final class MemoryStore: SettingsStore {
     }
 
     func folderOverride(forKey key: String) -> String? { folder[key] }
+    func override(forKey key: String) -> SettingsOverride? {
+        overrides[key] ?? folder[key].map { SettingsOverride(value: $0) }
+    }
     func machineNote(forKey key: String) -> SettingsNote? { notes[key] }
     func clearFolderOverride(forKey key: String) {
         clearedFolderKeys.append(key)
