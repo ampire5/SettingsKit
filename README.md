@@ -1,6 +1,6 @@
 # SettingsKit
 
-A SwiftUI settings window for macOS apps (Loupe now, FrameScrub next), laid out after IINA 1.5's settings: a sidebar with a search field, pages with SF Symbols and the sub-sections of the open page, and on the right cards of rows — switches, pop-ups, number and text fields, chevron rows that open in place, nested rows. Changes apply at once, with no Apply button. Own code; IINA served only as the visual reference.
+A SwiftUI settings window for macOS apps (Loupe and FrameScrub), laid out after IINA 1.5's settings: a sidebar with a search field, pages with SF Symbols and the sub-sections of the open page, and on the right cards of rows — switches, pop-ups, number and text fields, chevron rows that open in place, nested rows. Changes apply at once, with no Apply button. Own code; IINA served only as the visual reference.
 
 An app describes its pages as data (`SettingsPage` → `SettingsSection` → `SettingsCard` → `SettingsRow`, built with `.toggle(…)`, `.choice(…)`, `.number(…)`, `.slider(…)`, `.text(…)`, `.flags(…)`, `.button(…)`, `.group(…)`), supplies a `SettingsStore` — the key/value source of truth, for example a config file: `value(forKey:)`, `defaultValue(forKey:)`, `validate(_:forKey:)`, `setValue(_:forKey:)`, posting `.settingsStoreDidChange` for every change, its own writes included — and opens a `SettingsWindowController(pages:model:autosaveName:lastPageDefaultsKey:style:)` over a `SettingsModel(store:)`. `style` is `.glass` by default (a floating Liquid Glass sidebar panel and glass cards over a softly tinted window) or `.plain` (the stock sidebar, opaque cards).
 
@@ -20,11 +20,14 @@ What else is in the box:
   filter field, «+» / «−», an edit sheet with a key recorder, «Restore Built-in» and Delete. The app supplies a
   `KeyBindingSource` (rows, actions, mouse buttons and press kinds, `keyToken(for:)`, `bind`, `remove`,
   `restoreBuiltIn`); its `conflict(input:)` names the action an input does now, and the sheet shows «Replaces: …»
-  before a binding takes it over. Put the table in a `.custom` row.
+  before a binding takes it over; `stepRule(for:)` sets the step an action takes (`KeyBindingStep`: a range, a
+  default, whether it may be negative; 0.01–1 either way by default). Put the table in a `.custom` row.
 - **Per-folder overrides**: a store that knows folder values implements `folderOverride(forKey:)` and
   `clearFolderOverride(forKey:)` (both have empty defaults). A row whose key the current folder sets shows «This
   folder: <value>» with a «Use Default» button, which calls `SettingsModel.clearFolderOverride(_:)`; call
-  `refreshFolderOverrides()` when the current folder changes.
+  `refreshFolderOverrides()` when the current folder changes. A store with more levels (a file, a parent folder)
+  implements `override(forKey:)` instead, returning a `SettingsOverride` with the level's label («This file»,
+  «Folder Shoot»), symbol and tooltip; «Use Default» then drops that level's value.
 - **Back to defaults**: a row's context menu has «Reset to Default» (`SettingsModel.reset(_:)`); a changed row shows a
   dot by its title. Below a page with keys, «Reset Page to Defaults…» asks, then resets the page's changed keys in one
   `removeValues(forKeys:)` call. Its default writes each key's default value; a store that can drop a key should
@@ -104,7 +107,7 @@ dependencies: [
 dependencies: [.product(name: "SettingsKit", package: "SettingsKit")]
 ```
 
-Used by [Loupe](https://github.com/ampire5/Loupe).
+Used by [Loupe](https://github.com/ampire5/Loupe) and [FrameScrub](https://github.com/ampire5/FrameScrub).
 
 ## Issues and contributions
 
