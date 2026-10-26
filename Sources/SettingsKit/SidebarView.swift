@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 
 /// Search field, page list, and the sub-sections of the open page with their indicator.
+///
+/// A scroll view of rows with the sidebar list's metrics (rows of 28 pt with 4 pt above and below, content 16 pt in,
+/// the selection 10 pt in), not a `List`: the stock list is an `NSOutlineView` that diffed its rows and measured their
+/// heights on every page switch (the open page's sub-sections are rows that come and go), a third of a return to a
+/// page (LoupeBench settings, M4 Max).
 struct SidebarView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(\.settingsStyle) private var style
@@ -9,33 +14,24 @@ struct SidebarView: View {
 
     var body: some View {
         @Bindable var ui = ui
-        // No List selection: the stock sidebar selection is accent blue while the window is key;
-        // the selected page gets its own grey background, and ↑/↓ are handled here.
-        List {
-            ForEach(ui.visiblePages) { page in
-                HStack(spacing: 8) {
-                    Image(systemName: page.symbol).resizable().scaledToFit()
-                        .fontWeight(.bold).frame(width: 20, height: 20)
-                        .frame(width: 24)
-                    Text(page.title).fontWeight(.bold)
-                    Spacer(minLength: 0)
-                }
-                .frame(height: 28)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    ui.select(page.id)
-                    listFocused = true
-                }
-                .listRowBackground(
-                    page.id == ui.page
-                        ? RoundedRectangle(cornerRadius: 10).fill(SettingsColors.selection).padding(.horizontal, 10)
-                        : nil)
-                if page.id == ui.page {
-                    SubsectionIndicator(page: page)
+        // No selection colour of the system: the stock sidebar selection is accent blue while the window is key; the
+        // selected page gets its own grey background, and ↑/↓ are handled here.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(ui.visiblePages) { page in
+                    SidebarRow(page: page, selected: page.id == ui.page) {
+                        ui.select(page.id)
+                        listFocused = true
+                    }
+                    if page.id == ui.page {
+                        SubsectionIndicator(page: page)
+                            .padding(.horizontal, 16).padding(.vertical, 4)
+                    }
                 }
             }
         }
-        .listStyle(.sidebar)
+        .focusable()
+        .focusEffectDisabled()
         .focused($listFocused)
         .onKeyPress(.upArrow) { ui.selectAdjacent(-1); return .handled }
         .onKeyPress(.downArrow) { ui.selectAdjacent(1); return .handled }
@@ -45,6 +41,34 @@ struct SidebarView: View {
                 .padding(.horizontal, 8).padding(.top, 2).padding(.bottom, 10)
         }
         .sidebarSurface(style)
+    }
+}
+
+/// A page in the sidebar: its symbol and title; the selected one on a grey rounded background.
+struct SidebarRow: View {
+    let page: SettingsPage
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: page.symbol).resizable().scaledToFit()
+                .fontWeight(.bold).frame(width: 20, height: 20)
+                .frame(width: 24)
+            Text(page.title).fontWeight(.bold)
+            Spacer(minLength: 0)
+        }
+        .frame(height: 28)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background {
+            if selected { RoundedRectangle(cornerRadius: 10).fill(SettingsColors.selection).padding(.horizontal, 10) }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { action() }
     }
 }
 

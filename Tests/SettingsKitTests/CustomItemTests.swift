@@ -53,6 +53,9 @@ struct CustomItemTests {
         guard case .icon(let choices, let folder) = row.kind else { Issue.record("not an icon row"); return }
         #expect(choices().map(\.word) == ["owl", "horse"])
         #expect(folder == nil)
+        #expect(row.iconLookup == nil)
+        let looked = SettingsRow.icon("app-icon", "App icon", choices: { [] }, current: { IconChoice(word: $0, section: "x") })
+        #expect(looked.iconLookup?("hat")?.section == "x")
         model.set("app-icon", choices()[1].word)
         #expect(store.values["app-icon"] == "horse")
         #expect(model.value("app-icon") == "horse")

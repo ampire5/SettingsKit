@@ -131,25 +131,12 @@ public struct KeyBindingTable: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
-            Table(shown, selection: $selection) {
-                TableColumn("Input") { Text($0.input) }
-                    .width(min: 120, ideal: 180)
-                TableColumn("Action") { Text($0.action) }
-                    .width(min: 160, ideal: 260)
-                TableColumn("Source") { row in
-                    Text(row.source).foregroundStyle(row.canRestore ? AnyShapeStyle(.primary) : style.secondaryText)
-                }
-                .width(min: 84, ideal: 92, max: 140)
-            }
-            .tableStyle(.inset(alternatesRowBackgrounds: false))
-            .scrollContentBackground(.hidden)
-            .background(TableCornerRemover())
-            .contextMenu(forSelectionType: String.self) { ids in
-                contextMenu(ids)
-            } primaryAction: { ids in
-                if let id = Self.editTarget(rows, ids: ids) { edit(id) }
-            }
-            .onDeleteCommand { removeSelected() }
+            BindingsTableView(rows: shown, selection: $selection,
+                              sourceColor: style == .glass ? NSColor.labelColor.withAlphaComponent(0.75)
+                                                           : .secondaryLabelColor,
+                              menu: contextActions, edit: { ids in
+                                  if let id = Self.editTarget(rows, ids: ids) { edit(id) }
+                              }, delete: removeSelected)
             .frame(height: mouse ? 300 : 420)
             Divider()
             HStack(spacing: 0) {
@@ -190,18 +177,21 @@ public struct KeyBindingTable: View {
         }
     }
 
-    @ViewBuilder private func contextMenu(_ ids: Set<String>) -> some View {
+    /// The context menu of the rows `ids` (the clicked row, or the selection it is in).
+    private func contextActions(_ ids: Set<String>) -> [BindingsTableView.MenuAction] {
         let picked = rows.filter { ids.contains($0.id) }
+        var actions: [BindingsTableView.MenuAction] = []
         if let id = Self.editTarget(picked, ids: ids) {
-            Button("Edit…") { edit(id) }
+            actions.append(.init(title: "Edit…") { edit(id) })
         }
         if !picked.isEmpty {
-            Button(picked.count == 1 ? "Unbind" : "Unbind \(picked.count) Inputs") { remove(ids) }
-                .disabled(!picked.contains { $0.canRemove })
+            actions.append(.init(title: picked.count == 1 ? "Unbind" : "Unbind \(picked.count) Inputs",
+                                 enabled: picked.contains { $0.canRemove }) { remove(ids) })
             if picked.contains(where: \.canRestore) {
-                Button("Restore Built-in") { restore(picked.filter(\.canRestore)) }
+                actions.append(.init(title: "Restore Built-in") { restore(picked.filter(\.canRestore)) })
             }
         }
+        return actions
     }
 
     private func reload() {
@@ -274,69 +264,194 @@ struct FilterField: NSViewRepresentable {
     }
 }
 
-/// Takes the corner view off the table next to it: with the content background hidden, the corner above the
-/// vertical scroller kept an opaque dark square at the end of the header. AppKit makes the corner view when the
-/// scroller first appears (after the rows arrive), so it is taken off again whenever the table's frame changes. The
-/// table is the nearest `NSTableView` around this view.
-struct TableCornerRemover: NSViewRepresentable {
-    func makeNSView(context: Context) -> CornerRemoverView { CornerRemoverView() }
-    func updateNSView(_ view: CornerRemoverView, context: Context) { view.attach() }
+/// The bindings as an `NSTableView` with plain text cells: Input, Action, Source. SwiftUI's `Table` made a hosting view
+/// per cell, 40 ms of the main thread for the 17 visible rows when the Key Bindings page first opened (LoupeBench
+/// settings, M4 Max); these cells cost next to nothing. Several rows can be selected; a double-click or Return asks
+/// `edit`, Delete asks `delete`, and the context menu is `menu`'s for the clicked row or the selection it is in.
+struct BindingsTableView: NSViewRepresentable {
+    struct MenuAction {
+        let title: String
+        var enabled = true
+        let perform: @MainActor () -> Void
+    }
 
-    final class CornerRemoverView: NSView {
-        private weak var table: NSTableView?
-        private nonisolated(unsafe) var observer: NSObjectProtocol?
+    let rows: [KeyBindingRowModel]
+    @Binding var selection: Set<String>
+    /// The Source column's colour for rows that do not come from the app's file.
+    let sourceColor: NSColor
+    let menu: @MainActor (Set<String>) -> [MenuAction]
+    let edit: @MainActor (Set<String>) -> Void
+    let delete: @MainActor () -> Void
 
-        deinit {
-            if let observer { NotificationCenter.default.removeObserver(observer) }
+    private static let columns: [(id: String, title: String, width: CGFloat, min: CGFloat, max: CGFloat)] = [
+        ("input", "Input", 180, 120, 10_000), ("action", "Action", 260, 160, 10_000), ("source", "Source", 92, 84, 140),
+    ]
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let table = BindingsNSTableView()
+        table.style = .inset
+        table.usesAlternatingRowBackgroundColors = false
+        table.backgroundColor = .clear
+        table.allowsMultipleSelection = true
+        table.allowsEmptySelection = true
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.rowHeight = 24
+        // No opaque square above the vertical scroller at the end of the header.
+        table.cornerView = nil
+        for column in Self.columns {
+            let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.id))
+            tableColumn.title = column.title
+            tableColumn.width = column.width
+            tableColumn.minWidth = column.min
+            tableColumn.maxWidth = column.max
+            table.addTableColumn(tableColumn)
         }
+        let coordinator = context.coordinator
+        table.dataSource = coordinator
+        table.delegate = coordinator
+        table.target = coordinator
+        table.doubleAction = #selector(Coordinator.doubleClicked(_:))
+        table.onDelete = { coordinator.parent.delete() }
+        table.onReturn = { coordinator.parent.edit(coordinator.parent.selection) }
+        let menu = NSMenu()
+        menu.delegate = coordinator
+        table.menu = menu
+        coordinator.table = table
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            DispatchQueue.main.async { [weak self] in self?.attach() }
-        }
+        let scroll = BindingsScrollView()
+        scroll.documentView = table
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        coordinator.show(rows, selection: selection)
+        return scroll
+    }
 
-        func attach() {
-            if table == nil, let found = findTable() {
-                table = found
-                found.postsFrameChangedNotifications = true
-                observer = NotificationCenter.default.addObserver(
-                    forName: NSView.frameDidChangeNotification, object: found, queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.removeCorner() }
-                }
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.show(rows, selection: selection)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+        var parent: BindingsTableView
+        weak var table: NSTableView?
+        private var shown: [KeyBindingRowModel] = []
+        private var sourceColor: NSColor?
+        /// Set while the table's selection is set from the binding, so it is not written back.
+        private var settingSelection = false
+
+        init(parent: BindingsTableView) { self.parent = parent }
+
+        /// Reloads when the rows or the colour changed, and selects `selection`'s rows.
+        func show(_ rows: [KeyBindingRowModel], selection: Set<String>) {
+            guard let table else { return }
+            if rows != shown || parent.sourceColor != sourceColor {
+                shown = rows
+                sourceColor = parent.sourceColor
+                table.reloadData()
             }
-            removeCorner()
-        }
-
-        private func removeCorner() {
-            if let table, table.cornerView != nil { table.cornerView = nil }
-        }
-
-        /// The table this view is the background of: among the tables under the nearest ancestor that has any, the
-        /// smallest whose scroll view (in window coordinates) holds this view's centre. A page with several tables
-        /// has them all under one ancestor, so the first table found would be the wrong one for all but one.
-        private func findTable() -> NSTableView? {
-            guard window != nil else { return nil }
-            let centre = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
-            var ancestor = superview
-            while let view = ancestor {
-                var tables: [NSTableView] = []
-                Self.collectTables(in: view, depth: 10, into: &tables)
-                let holding = tables.compactMap { table -> (NSTableView, CGFloat)? in
-                    let box = table.enclosingScrollView ?? table
-                    let frame = box.convert(box.bounds, to: nil)
-                    return frame.contains(centre) ? (table, frame.width * frame.height) : nil
-                }
-                if let nearest = holding.min(by: { $0.1 < $1.1 }) { return nearest.0 }
-                ancestor = view.superview
+            let indexes = IndexSet(shown.indices.filter { selection.contains(shown[$0].id) })
+            if table.selectedRowIndexes != indexes {
+                settingSelection = true
+                table.selectRowIndexes(indexes, byExtendingSelection: false)
+                settingSelection = false
             }
-            return nil
         }
 
-        private static func collectTables(in view: NSView, depth: Int, into tables: inout [NSTableView]) {
-            if let table = view as? NSTableView { tables.append(table); return }
-            guard depth > 0 else { return }
-            for subview in view.subviews { collectTables(in: subview, depth: depth - 1, into: &tables) }
+        func numberOfRows(in tableView: NSTableView) -> Int { shown.count }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard let column = tableColumn?.identifier, shown.indices.contains(row) else { return nil }
+            let cell = tableView.makeView(withIdentifier: column, owner: nil) as? NSTableCellView ?? {
+                let cell = NSTableCellView()
+                cell.identifier = column
+                let label = NSTextField(labelWithString: "")
+                label.lineBreakMode = .byTruncatingTail
+                label.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(label)
+                cell.textField = label
+                NSLayoutConstraint.activate([
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                    label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                    label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                ])
+                return cell
+            }()
+            let item = shown[row]
+            switch column.rawValue {
+            case "input": cell.textField?.stringValue = item.input
+            case "action": cell.textField?.stringValue = item.action
+            default:
+                cell.textField?.stringValue = item.source
+                cell.textField?.textColor = item.canRestore ? .labelColor : parent.sourceColor
+            }
+            return cell
+        }
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            guard !settingSelection, let table else { return }
+            let ids = Set(table.selectedRowIndexes.compactMap { shown.indices.contains($0) ? shown[$0].id : nil })
+            if ids != parent.selection { parent.selection = ids }
+        }
+
+        @objc func doubleClicked(_ sender: NSTableView) {
+            guard shown.indices.contains(sender.clickedRow) else { return }
+            parent.edit([shown[sender.clickedRow].id])
+        }
+
+        /// The rows a context menu is for: the selection when the clicked row is in it, otherwise the clicked row.
+        private var menuRows: Set<String> {
+            guard let table, shown.indices.contains(table.clickedRow) else { return [] }
+            let clicked = shown[table.clickedRow].id
+            return parent.selection.contains(clicked) ? parent.selection : [clicked]
+        }
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            for action in parent.menu(menuRows) {
+                let item = NSMenuItem(title: action.title, action: action.enabled ? #selector(menuPicked(_:)) : nil,
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = MenuBox(action.perform)
+                item.isEnabled = action.enabled
+                menu.addItem(item)
+            }
+        }
+
+        @objc private func menuPicked(_ item: NSMenuItem) {
+            (item.representedObject as? MenuBox)?.perform()
+        }
+
+        private final class MenuBox {
+            let perform: @MainActor () -> Void
+            init(_ perform: @escaping @MainActor () -> Void) { self.perform = perform }
+        }
+    }
+}
+
+/// The bindings table's scroll view: the columns share out its width (no horizontal scrolling).
+final class BindingsScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        if let table = documentView as? NSTableView, abs(table.frame.width - contentView.bounds.width) > 0.5 {
+            table.sizeToFit()
+        }
+    }
+}
+
+/// The bindings table: Delete and ⌫ unbind the selection, Return edits it.
+final class BindingsNSTableView: NSTableView {
+    var onDelete: () -> Void = {}
+    var onReturn: () -> Void = {}
+
+    override func keyDown(with event: NSEvent) {
+        switch event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
+        case NSDeleteCharacter, NSDeleteFunctionKey, NSBackspaceCharacter: onDelete()
+        case NSCarriageReturnCharacter, NSEnterCharacter: onReturn()
+        default: super.keyDown(with: event)
         }
     }
 }

@@ -162,6 +162,8 @@ final class SettingsUIState {
     /// another page is open), so going back to one is instant and keeps its scroll position. Building a page's
     /// controls again on every switch took 0.2–1.4 s of the main thread (LoupeBench settings, Intel iMac).
     private(set) var keptPages: [String] = []
+    /// The window's width, for the glass background of the pages (each in its own hosting view, `PageStack`).
+    var windowWidth: CGFloat = 0
 
     init(pages: [SettingsPage], page: String?) {
         self.pages = pages
@@ -232,24 +234,15 @@ struct SettingsRootView: View {
                 .navigationSplitViewColumnWidth(SettingsWindowController.sidebarWidth(style))
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            // Every kept page is in the stack; only the open one shows, takes clicks and is read by VoiceOver. ⇥ skips
-            // the others' controls (`SettingsWindow.selectKeyView`): disabling them instead cost 150–300 ms per switch.
-            ZStack {
-                ForEach(ui.keptPages, id: \.self) { id in
-                    if let page = ui.pages.first(where: { $0.id == id }) {
-                        let open = id == ui.page
-                        PageView(page: page, isOpen: open)
-                            .opacity(open ? 1 : 0)
-                            .allowsHitTesting(open)
-                            .accessibilityHidden(!open)
-                            .zIndex(open ? 1 : 0)
-                    }
-                }
-            }
-            .navigationTitle(ui.currentPage?.title ?? "")
+            // Every kept page has its own hosting view; only the open one is shown (`PageStack`).
+            // Under the toolbar too: each page's hosting view takes the toolbar's inset from the window, so its
+            // background goes on under the title as before and its content starts below it.
+            PageStack(ui: ui, model: model, style: style, open: ui.page, kept: ui.keptPages)
+                .ignoresSafeArea()
+                .navigationTitle(ui.currentPage?.title ?? "")
         }
         .toolbar(removing: .sidebarToggle)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0; ui.windowWidth = $0 }
         .environment(\.settingsWindowWidth, width)
         .toolbar {
             // An invisible item keeps the unified toolbar at its full 52 pt height, as in IINA.
@@ -266,6 +259,77 @@ struct SettingsRootView: View {
         } message: {
             Text(model.writeFailure?.message ?? "")
         }
+    }
+}
+
+/// The detail column: each kept page in its own `NSHostingView` in one AppKit container, the open one shown and the
+/// others hidden (`isHidden`: no drawing, no clicks, not in the ⇥ loop or VoiceOver). In one SwiftUI tree at opacity 0
+/// instead, SwiftUI took a hidden page's AppKit controls (fields, pop-ups, the key binding table, the scroll view) out
+/// of the window and put them back on every return, each `addSubview` walking the subtree: two thirds of a return's
+/// 35–60 ms (LoupeBench settings, M4 Max).
+struct PageStack: NSViewRepresentable {
+    let ui: SettingsUIState
+    let model: SettingsModel
+    let style: SettingsStyle
+    let open: String
+    let kept: [String]
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        let hosts = context.coordinator
+        for id in kept where hosts.views[id] == nil {
+            guard let page = ui.pages.first(where: { $0.id == id }) else { continue }
+            let slot = PageSlot()
+            let host = NSHostingView(rootView: KeptPage(ui: ui, model: model, page: page, slot: slot)
+                .environment(\.settingsStyle, style))
+            host.sizingOptions = []
+            host.sceneBridgingOptions = []
+            host.frame = container.bounds
+            host.autoresizingMask = [.width, .height]
+            host.isHidden = true
+            container.addSubview(host)
+            hosts.views[id] = host
+            hosts.slots[id] = slot
+        }
+        for (id, view) in hosts.views {
+            let isOpen = id == open
+            if view.isHidden == isOpen { view.isHidden = !isOpen }
+            if hosts.slots[id]?.isOpen != isOpen { hosts.slots[id]?.isOpen = isOpen }
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    @MainActor
+    final class Coordinator {
+        var views: [String: NSView] = [:]
+        var slots: [String: PageSlot] = [:]
+    }
+}
+
+/// Whether a kept page is the open one, observed by that page alone: a switch updates two pages, not every kept one.
+@MainActor @Observable
+final class PageSlot {
+    var isOpen = false
+}
+
+/// The root of a kept page's hosting view: the page with the window's state in its environment.
+struct KeptPage: View {
+    let ui: SettingsUIState
+    let model: SettingsModel
+    let page: SettingsPage
+    let slot: PageSlot
+
+    var body: some View {
+        PageView(page: page, isOpen: slot.isOpen)
+            .environment(\.settingsWindowWidth, ui.windowWidth)
+            .environment(ui)
+            .environment(model)
     }
 }
 

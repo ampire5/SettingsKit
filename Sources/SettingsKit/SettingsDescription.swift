@@ -73,6 +73,8 @@ public struct SettingsRow: Identifiable, Sendable {
     public let offValues: Set<String>
     /// For a `.color` row: value words that stand for colours (`light` → `#ffffff,#cccccc`), so the wells show them.
     public let colorNames: [String: String]
+    /// For an `.icon` row: finds one value's picture for the row; nil: the row looks it up in the choices.
+    public let iconLookup: (@MainActor @Sendable (String) -> IconChoice?)?
 
     /// The key, or (for rows without one) the title; unique within a page.
     public var id: String { key ?? "#" + title }
@@ -80,7 +82,7 @@ public struct SettingsRow: Identifiable, Sendable {
     /// `offValues` nil: `["no"]` for a `.toggle`, none for the other kinds.
     public init(key: String?, kind: RowKind, title: String, description: String? = nil, symbol: String? = nil,
                 nested: [SettingsRow] = [], expands: [SettingsRow] = [], offValues: Set<String>? = nil,
-                colorNames: [String: String] = [:]) {
+                colorNames: [String: String] = [:], iconLookup: (@MainActor @Sendable (String) -> IconChoice?)? = nil) {
         self.key = key
         self.kind = kind
         self.title = title
@@ -96,6 +98,7 @@ public struct SettingsRow: Identifiable, Sendable {
             self.offValues = []
         }
         self.colorNames = colorNames
+        self.iconLookup = iconLookup
     }
 
     /// Whether `value` of this row makes its nested rows inactive: a switch that is not `yes` (unless its
@@ -134,6 +137,7 @@ public enum RowKind: Sendable {
     case color(count: Int)
     /// The current picture and its name, and Choose… that opens a grid of `choices` (`IconChoice`) in a popover;
     /// `folder` is where the user's own pictures go (Show in Finder, Add…, drop; watched while the grid is open).
+    /// The row's own picture comes from `SettingsRow.iconLookup` when it has one.
     case icon(choices: @MainActor @Sendable () -> [IconChoice], folder: URL?)
     /// A push button with `title`.
     case button(title: String, action: @MainActor @Sendable () -> Void)
@@ -214,12 +218,15 @@ public extension SettingsRow {
 
     /// A picture picker over `choices`: the value is the chosen one's word. Only the current picture is looked up
     /// while the row is shown; the grid reads the choices when it opens, and makes each thumbnail at its size off the
-    /// main thread.
+    /// main thread. `current` finds one value's picture without reading every choice (a folder of packs: ~900 files,
+    /// 20–25 ms of the main thread on an M4 Max); without it the row looks the value up in `choices` whenever it is
+    /// built or the value changes.
     static func icon(_ key: String, _ title: String,
                      choices: @escaping @MainActor @Sendable () -> [IconChoice], folder: URL? = nil,
+                     current: (@MainActor @Sendable (String) -> IconChoice?)? = nil,
                      symbol: String? = nil, description: String? = nil, nested: [SettingsRow] = []) -> SettingsRow {
         SettingsRow(key: key, kind: .icon(choices: choices, folder: folder), title: title, description: description,
-                    symbol: symbol, nested: nested)
+                    symbol: symbol, nested: nested, iconLookup: current)
     }
 
     /// A row titled `title` with a push button titled `button`.

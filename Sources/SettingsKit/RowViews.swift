@@ -121,7 +121,7 @@ struct RowView: View {
         case .color(let count):
             if let key = row.key { ColorControl(key: key, count: count, names: row.colorNames) }
         case .icon(let choices, let folder):
-            if let key = row.key { IconRowControl(key: key, choices: choices, folder: folder) }
+            if let key = row.key { IconRowControl(key: key, choices: choices, folder: folder, lookup: row.iconLookup) }
         case .text, .custom:
             EmptyView()
         case .button(let title, let action):
