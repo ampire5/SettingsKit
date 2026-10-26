@@ -134,7 +134,9 @@ public enum RowKind: Sendable {
     case color(count: Int)
     /// The current picture and its name, and Choose… that opens a grid of `choices` (`IconChoice`) in a popover;
     /// `folder` is where the user's own pictures go (Show in Finder, Add…, drop; watched while the grid is open).
-    case icon(choices: @MainActor @Sendable () -> [IconChoice], folder: URL?)
+    /// `current` finds the picture of one value for the row; nil: the row looks it up in `choices`.
+    case icon(choices: @MainActor @Sendable () -> [IconChoice], folder: URL?,
+              current: (@MainActor @Sendable (String) -> IconChoice?)?)
     /// A push button with `title`.
     case button(title: String, action: @MainActor @Sendable () -> Void)
     /// A chevron row that expands into its `expands` rows.
@@ -214,12 +216,15 @@ public extension SettingsRow {
 
     /// A picture picker over `choices`: the value is the chosen one's word. Only the current picture is looked up
     /// while the row is shown; the grid reads the choices when it opens, and makes each thumbnail at its size off the
-    /// main thread.
+    /// main thread. `current` finds one value's picture without reading every choice (a folder of packs: ~900 files,
+    /// 20–25 ms of the main thread on an M4 Max); without it the row looks the value up in `choices` whenever it is
+    /// built or the value changes.
     static func icon(_ key: String, _ title: String,
                      choices: @escaping @MainActor @Sendable () -> [IconChoice], folder: URL? = nil,
+                     current: (@MainActor @Sendable (String) -> IconChoice?)? = nil,
                      symbol: String? = nil, description: String? = nil, nested: [SettingsRow] = []) -> SettingsRow {
-        SettingsRow(key: key, kind: .icon(choices: choices, folder: folder), title: title, description: description,
-                    symbol: symbol, nested: nested)
+        SettingsRow(key: key, kind: .icon(choices: choices, folder: folder, current: current), title: title,
+                    description: description, symbol: symbol, nested: nested)
     }
 
     /// A row titled `title` with a push button titled `button`.

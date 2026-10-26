@@ -9,6 +9,8 @@ struct CardView: View {
     @Environment(\.settingsStyle) private var style
     @Environment(\.settingsPageID) private var pageID
     let card: SettingsCard
+    /// How many of the card's lines are shown (the page builds them a few at a time, `PagePieces`).
+    var limit = Int.max
 
     /// One displayed line: a row, or one item of an open `.flags` row.
     enum Line: Identifiable {
@@ -30,7 +32,7 @@ struct CardView: View {
     }
 
     var body: some View {
-        let lines = card.rows.flatMap { self.lines(for: $0, nested: false, enabled: true) }
+        let lines = shown(card.rows.flatMap { self.lines(for: $0, nested: false, enabled: true) })
         VStack(spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
                 Group {
@@ -57,6 +59,18 @@ struct CardView: View {
             }
         }
         .cardSurface(style)
+    }
+
+    /// The lines within `limit`, in `PagePieces`' units (a `.custom` row is several): a line shows once the limit
+    /// reaches into it.
+    private func shown(_ lines: [Line]) -> [Line] {
+        guard limit != .max else { return lines }
+        var used = 0
+        return Array(lines.prefix { line in
+            guard used < limit else { return false }
+            if case .row(let row, _, _) = line, case .custom = row.kind { used += PagePieces.customLines } else { used += 1 }
+            return true
+        })
     }
 
     /// The row, its nested rows (disabled while the row is off, `turnsNestedOff`), and the content of an open chevron.

@@ -608,6 +608,8 @@ struct IconRowControl: View {
     let key: String
     let choices: @MainActor () -> [IconChoice]
     let folder: URL?
+    /// One value's picture; nil: looked up in `choices`.
+    var lookup: (@MainActor (String) -> IconChoice?)?
     @State private var choice: IconChoice?
     @State private var grid: IconGridModel?
 
@@ -632,6 +634,6 @@ struct IconRowControl: View {
             }
         }
         // Only the current picture is looked up here; the grid reads the rest when it opens.
-        .task(id: value) { choice = choices().first { $0.word == value } }
+        .task(id: value) { choice = lookup.map { $0(value) } ?? choices().first { $0.word == value } }
     }
 }

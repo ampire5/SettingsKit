@@ -50,7 +50,7 @@ struct CustomItemTests {
         let model = SettingsModel(store: store)
         let row = SettingsRow.icon("app-icon", "App icon", choices: { [IconChoice(word: "owl"), IconChoice(word: "horse")] })
         model.register([page([row])])
-        guard case .icon(let choices, let folder) = row.kind else { Issue.record("not an icon row"); return }
+        guard case .icon(let choices, let folder, _) = row.kind else { Issue.record("not an icon row"); return }
         #expect(choices().map(\.word) == ["owl", "horse"])
         #expect(folder == nil)
         model.set("app-icon", choices()[1].word)
