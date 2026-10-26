@@ -8,11 +8,15 @@ An app describes its pages as data (`SettingsPage` → `SettingsSection` → `Se
 
 What else is in the box:
 
+- **Fast page switches**: a page is built once, in pieces of a few rows per run loop turn (it shows at once and fills
+  in below), and kept: going back to it only shows it again. The sidebar is plain rows, not a `List`.
+
 - **Row types** beyond the basics: `.color(…)` (one or more colour wells over `#rrggbb[,#rrggbb]`, with named values
   such as `light` shown in the wells), `.icon(…)` (the current picture with Choose…, which opens a searchable grid of
-  `IconChoice`s in a popover; thumbnails are made from the files at their size, off the main thread), and `.custom(…)` (a view
+  `IconChoice`s in a popover; thumbnails are made from the files at their size, off the main thread; `current:` finds
+  the row's one picture without reading every choice), and `.custom(…)` (a view
   of the app's own filling a card; the window's search asks its `searchTexts` on every query).
-- **Key-binding editor**: `KeyBindingTable(source:mouse:note:)` is a SwiftUI table of keyboard or mouse bindings with a
+- **Key-binding editor**: `KeyBindingTable(source:mouse:note:)` is a table (an `NSTableView`) of keyboard or mouse bindings with a
   filter field, «+» / «−», an edit sheet with a key recorder, «Restore Built-in» and Delete. The app supplies a
   `KeyBindingSource` (rows, actions, mouse buttons and press kinds, `keyToken(for:)`, `bind`, `remove`,
   `restoreBuiltIn`); its `conflict(input:)` names the action an input does now, and the sheet shows «Replaces: …»
