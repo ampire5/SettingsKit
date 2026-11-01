@@ -615,8 +615,8 @@ struct IconRowControl: View {
 
     var body: some View {
         let value = model.value(key)
-        HStack(spacing: 8) {
-            IconThumbnail(choice: choice ?? IconChoice(word: value), side: 22)
+        HStack(spacing: 12) {
+            IconThumbnail(choice: choice ?? IconChoice(word: value), side: 80)
             Text(IconChoice.title(of: value))
                 .font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: 140, alignment: .trailing)

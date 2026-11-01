@@ -3,7 +3,7 @@ import SwiftUI
 
 /// One row: symbol (or indent), title, description (or the key's error in red), and the kind's control.
 /// Row 40 pt (nested 32): vertical padding 12 (8) around a 16 pt line; the control is centred on the
-/// title's line and never grows the row. Text at x 36 (nested 44) from the card edge.
+/// title's line. An icon row grows to fit its 80 pt preview. Text at x 36 (nested 44) from the card edge.
 struct RowView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
@@ -34,7 +34,7 @@ struct RowView: View {
             }
             .frame(maxWidth: isFullWidth ? .infinity : nil, alignment: .leading)
             if !isFullWidth { Spacer(minLength: 8) }
-            control.frame(height: 16)
+            control.frame(height: controlHeight)
         }
         .padding(.vertical, nested ? 8 : 12)
         .padding(.trailing, 8)
@@ -65,6 +65,11 @@ struct RowView: View {
     private var isFullWidth: Bool {
         if case .text = row.kind { return true }
         return false
+    }
+
+    private var controlHeight: CGFloat {
+        if case .icon = row.kind { return 80 }
+        return 16
     }
 
     private var hasChevron: Bool {
