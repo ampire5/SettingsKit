@@ -41,7 +41,7 @@ What else is in the box:
 `swift run settings-demo` shows a sample (`--page <id>`, `--search <text>`, `--expand <row id>`, `--light`,
 `--style plain|glass`).
 
-Requirements: macOS 26+, swift-tools 6.2 (the target builds in the Swift 5 language mode).
+Requirements: macOS 26+, swift-tools 6.2 (the target builds in the Swift 6 language mode).
 
 ## Usage
 

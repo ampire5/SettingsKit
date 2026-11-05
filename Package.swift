@@ -12,5 +12,5 @@ let package = Package(
         .executableTarget(name: "settings-demo", dependencies: ["SettingsKit"]),
         .testTarget(name: "SettingsKitTests", dependencies: ["SettingsKit"]),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )

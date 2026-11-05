@@ -377,9 +377,9 @@ final class DemoBindingSource: KeyBindingSource {
     }
 }
 
-@MainActor let demoBindings = DemoBindingSource()
+let demoBindings = DemoBindingSource()
 
-@MainActor let bindingsPage = SettingsPage("bindings", "Key Bindings", symbol: "keyboard", sections: [
+let bindingsPage = SettingsPage("bindings", "Key Bindings", symbol: "keyboard", sections: [
     SettingsSection("Keyboard", rows: [
         .custom("Keyboard bindings", searchTexts: {
             demoBindings.rows().filter { !$0.isMouse }.flatMap { [$0.input, $0.id, $0.action] }
