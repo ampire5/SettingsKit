@@ -407,7 +407,7 @@ struct ColorWell: View {
 
     var body: some View {
         let text = ColorText.resolved(model.value(key), names: names)
-        ColorPicker("", selection: Binding(get: { state.displayed(text: text, index: index) }, set: change),
+        ColorPicker("", selection: Binding(get: { state.displayed(text: text, index: index) }, set: { change($0) }),
                     supportsOpacity: false)
             .labelsHidden()
             .onChange(of: text) { state.storeChanged(hasPending: debouncer.pending != nil) }
