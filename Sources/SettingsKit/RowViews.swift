@@ -324,7 +324,8 @@ struct SliderControl: View {
     var body: some View {
         let value = dragged ?? stored
         HStack(spacing: 8) {
-            Slider(value: Binding(get: { value }, set: change), in: range) { editing in
+            // Swift 6.3 x86_64 crashes on a bound actor-isolated setter; keep this and ColorWell as closures.
+            Slider(value: Binding(get: { value }, set: { change($0) }), in: range) { editing in
                 if !editing { debouncer.flush() }
             }
             .labelsHidden().controlSize(.small).frame(width: 120)
