@@ -11,7 +11,7 @@ import SwiftUI
 struct PageView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
-    @Environment(\.settingsStyle) private var style
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let page: SettingsPage
     let isOpen: Bool
     @State private var sectionFrames: [String: CGRect] = [:]
@@ -33,13 +33,12 @@ struct PageView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 24) {
                 ForEach(Array(builtSections.enumerated()), id: \.element.section.id) { _, item in
                     let section = item.section
                     VStack(alignment: .leading, spacing: 12) {
                         Text(section.title)
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 14, weight: .medium))
                             .padding(.leading, 8)
                         VStack(spacing: 16) {
                             ForEach(item.cards.indices, id: \.self) {
@@ -55,11 +54,11 @@ struct PageView: View {
                 }
                 if !page.keys.isEmpty, built >= lineCount { resetButton }
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .environment(\.settingsPageID, page.id)
-        .pageBackground(style)
+        .background(Color(nsColor: .windowBackgroundColor))
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, new in
             geometry = new
@@ -83,7 +82,7 @@ struct PageView: View {
             ui.currentSection = request
             // Right after a page switch the sections are not laid out yet.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                withAnimation(.easeInOut(duration: 0.25)) { position.scrollTo(id: request, anchor: .top) }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { position.scrollTo(id: request, anchor: .top) }
                 if ui.scrollRequest == request { ui.scrollRequest = nil }
             }
         }

@@ -113,7 +113,6 @@ public struct KeyBindingTable: View {
     private let mouse: Bool
     private let note: String?
     @Environment(SettingsUIState.self) private var ui: SettingsUIState?
-    @Environment(\.settingsStyle) private var style
     @State private var rows: [KeyBindingRowModel] = []
     @State private var filter = ""
     @State private var selection: Set<String> = []
@@ -168,8 +167,7 @@ public struct KeyBindingTable: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             BindingsTableView(rows: shown, selection: $selection,
-                              sourceColor: style == .glass ? NSColor.labelColor.withAlphaComponent(0.75)
-                                                           : .secondaryLabelColor,
+                              sourceColor: .secondaryLabelColor,
                               menu: contextActions, edit: { ids in
                                   if let id = Self.editTarget(rows, ids: ids) { edit(id) }
                               }, delete: removeSelected)
@@ -186,7 +184,7 @@ public struct KeyBindingTable: View {
                 if let note {
                     Text(note)
                         .font(.caption)
-                        .foregroundStyle(style.secondaryText)
+                        .foregroundStyle(.secondary)
                         .padding(.trailing, 4)
                 }
             }

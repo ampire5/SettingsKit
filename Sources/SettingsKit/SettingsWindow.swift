@@ -21,7 +21,7 @@ public final class SettingsWindowController: NSWindowController {
     /// - Parameters:
     ///   - autosaveName: frame autosave name of the window.
     ///   - lastPageDefaultsKey: `UserDefaults` key that remembers the open page.
-    ///   - style: a floating glass sidebar and glass cards, or the plain look.
+    ///   - style: an inset glass sidebar or the native sidebar.
     public init(pages: [SettingsPage], model: SettingsModel, autosaveName: String, lastPageDefaultsKey: String,
                 style: SettingsStyle = .glass) {
         self.style = style
@@ -162,8 +162,6 @@ final class SettingsUIState {
     /// another page is open), so going back to one is instant and keeps its scroll position. Building a page's
     /// controls again on every switch took 0.2–1.4 s of the main thread (LoupeBench settings, Intel iMac).
     private(set) var keptPages: [String] = []
-    /// The window's width, for the glass background of the pages (each in its own hosting view, `PageStack`).
-    var windowWidth: CGFloat = 0
 
     init(pages: [SettingsPage], page: String?) {
         self.pages = pages
@@ -225,8 +223,6 @@ struct SettingsRootView: View {
     let ui: SettingsUIState
     let model: SettingsModel
     @Environment(\.settingsStyle) private var style
-    /// The window's width, for the glass style's background, which spans both columns.
-    @State private var width: CGFloat = 0
 
     var body: some View {
         NavigationSplitView {
@@ -235,15 +231,10 @@ struct SettingsRootView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             // Every kept page has its own hosting view; only the open one is shown (`PageStack`).
-            // Under the toolbar too: each page's hosting view takes the toolbar's inset from the window, so its
-            // background goes on under the title as before and its content starts below it.
-            PageStack(ui: ui, model: model, style: style, open: ui.page, kept: ui.keptPages)
-                .ignoresSafeArea()
+            PageStack(ui: ui, model: model, open: ui.page, kept: ui.keptPages)
                 .navigationTitle(ui.currentPage?.title ?? "")
         }
         .toolbar(removing: .sidebarToggle)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0; ui.windowWidth = $0 }
-        .environment(\.settingsWindowWidth, width)
         .toolbar {
             // An invisible item keeps the unified toolbar at its full 52 pt height, as in IINA.
             ToolbarItem(placement: .primaryAction) { Color.clear.frame(width: 1, height: 1) }
@@ -270,7 +261,6 @@ struct SettingsRootView: View {
 struct PageStack: NSViewRepresentable {
     let ui: SettingsUIState
     let model: SettingsModel
-    let style: SettingsStyle
     let open: String
     let kept: [String]
 
@@ -281,8 +271,7 @@ struct PageStack: NSViewRepresentable {
         for id in kept where hosts.views[id] == nil {
             guard let page = ui.pages.first(where: { $0.id == id }) else { continue }
             let slot = PageSlot()
-            let host = NSHostingView(rootView: KeptPage(ui: ui, model: model, page: page, slot: slot)
-                .environment(\.settingsStyle, style))
+            let host = NSHostingView(rootView: KeptPage(ui: ui, model: model, page: page, slot: slot))
             host.sizingOptions = []
             host.sceneBridgingOptions = []
             host.frame = container.bounds
@@ -327,7 +316,6 @@ struct KeptPage: View {
 
     var body: some View {
         PageView(page: page, isOpen: slot.isOpen)
-            .environment(\.settingsWindowWidth, ui.windowWidth)
             .environment(ui)
             .environment(model)
     }

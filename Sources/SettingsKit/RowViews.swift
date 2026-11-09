@@ -8,7 +8,6 @@ struct RowView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.settingsStyle) private var style
     @Environment(\.settingsPageID) private var pageID
     let row: SettingsRow
     let nested: Bool
@@ -97,7 +96,7 @@ struct RowView: View {
             return Text(error).font(.system(size: 11)).foregroundStyle(.red)
         }
         guard let description = row.description else { return nil }
-        return Text(description).font(.system(size: 11)).foregroundStyle(style.secondaryText)
+        return Text(description).font(.system(size: 11)).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var control: some View {
@@ -117,7 +116,7 @@ struct RowView: View {
                         .frame(width: 72)
                     if let unit {
                         Text(unit).font(.system(size: 13))
-                            .foregroundStyle(isEnabled ? style.secondaryText : AnyShapeStyle(.tertiary))
+                            .foregroundStyle(isEnabled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                     }
                 }
             }
@@ -313,7 +312,6 @@ struct SliderControl: View {
 
     @Environment(SettingsModel.self) private var model
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.settingsStyle) private var style
     let key: String
     let range: ClosedRange<Double>
     let marks: [(value: Double, title: String)]
@@ -331,7 +329,7 @@ struct SliderControl: View {
             .labelsHidden().controlSize(.small).frame(width: 120)
             Text(SettingsRow.nearestMark(value, in: marks))
                 .font(.system(size: 13).monospacedDigit())
-                .foregroundStyle(isEnabled ? style.secondaryText : AnyShapeStyle(.tertiary))
+                .foregroundStyle(isEnabled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                 .frame(minWidth: 34, alignment: .trailing)
         }
         .onDisappear { debouncer.flush() }
@@ -445,7 +443,6 @@ struct ColorWell: View {
 /// than squeeze it.
 struct MachineNote: View {
     @Environment(SettingsModel.self) private var model
-    @Environment(\.settingsStyle) private var style
     let key: String
     let note: SettingsNote
 
@@ -468,7 +465,7 @@ struct MachineNote: View {
             }
         }
         .font(.system(size: 11))
-        .foregroundStyle(style.secondaryText)
+        .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
     }
 
@@ -485,7 +482,6 @@ struct MachineNote: View {
 /// Default», which drops that level's value (the store's value applies there again, or the next level's).
 struct FolderNote: View {
     @Environment(SettingsModel.self) private var model
-    @Environment(\.settingsStyle) private var style
     let key: String
     let level: SettingsOverride
     /// «<label>: <value as the row names it>».
@@ -495,7 +491,7 @@ struct FolderNote: View {
         HStack(spacing: 8) {
             Label(title, systemImage: level.symbol)
                 .font(.system(size: 11))
-                .foregroundStyle(style.secondaryText)
+                .foregroundStyle(.secondary)
                 .help(level.help)
             Button("Use Default") { model.clearFolderOverride(key) }
                 .controlSize(.small)

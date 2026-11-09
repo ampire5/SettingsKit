@@ -3,8 +3,7 @@ import SwiftUI
 
 /// Search field, page list, and the sub-sections of the open page with their indicator.
 ///
-/// A scroll view of rows with the sidebar list's metrics (rows of 28 pt with 4 pt above and below, content 16 pt in,
-/// the selection 10 pt in), not a `List`: the stock list is an `NSOutlineView` that diffed its rows and measured their
+/// A scroll view of rows with the sidebar list's metrics (32 pt rows separated by 4 pt, content 16 pt in), not a `List`: the stock list is an `NSOutlineView` that diffed its rows and measured their
 /// heights on every page switch (the open page's sub-sections are rows that come and go), a third of a return to a
 /// page (LoupeBench settings, M4 Max).
 struct SidebarView: View {
@@ -17,7 +16,7 @@ struct SidebarView: View {
         // No selection colour of the system: the stock sidebar selection is accent blue while the window is key; the
         // selected page gets its own grey background, and ↑/↓ are handled here.
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(ui.visiblePages) { page in
                     SidebarRow(page: page, selected: page.id == ui.page) {
                         ui.select(page.id)
@@ -37,8 +36,8 @@ struct SidebarView: View {
         .onKeyPress(.downArrow) { ui.selectAdjacent(1); return .handled }
         .safeAreaInset(edge: .top, spacing: 0) {
             // .searchable(placement: .sidebar) looks the same but sits 9 pt lower and cannot be moved.
-            SearchField(text: $ui.query, onArrow: { ui.selectAdjacent($0) })
-                .padding(.horizontal, 8).padding(.top, 2).padding(.bottom, 10)
+            SearchField(text: $ui.query, dark: style == .glass, onArrow: { ui.selectAdjacent($0) })
+                .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
         }
         .sidebarSurface(style)
     }
@@ -52,17 +51,19 @@ struct SidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: page.symbol).resizable().scaledToFit()
-                .fontWeight(.bold).frame(width: 20, height: 20)
-                .frame(width: 24)
-            Text(page.title).fontWeight(.bold)
+            Image(systemName: page.symbol)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            Text(page.title)
+                .font(.system(size: 13, weight: selected ? .medium : .regular))
             Spacer(minLength: 0)
         }
-        .frame(height: 28)
+        .frame(height: 32)
         .padding(.horizontal, 16)
-        .padding(.vertical, 4)
         .background {
-            if selected { RoundedRectangle(cornerRadius: 10).fill(SettingsColors.selection).padding(.horizontal, 10) }
+            if selected { RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.10)).padding(.horizontal, 8) }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
@@ -76,25 +77,26 @@ struct SidebarRow: View {
 struct SubsectionIndicator: View {
     @Environment(SettingsUIState.self) private var ui
     let page: SettingsPage
-    private let rowHeight: CGFloat = 22
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let rowHeight: CGFloat = 24
 
     var body: some View {
         let titles = page.sections.map(\.title)
         let index = titles.firstIndex(of: ui.currentSection) ?? 0
         HStack(alignment: .top, spacing: 8) {
             ZStack(alignment: .top) {
-                Rectangle().fill(SettingsColors.indicatorLine).frame(width: 1).padding(.vertical, 4)
-                Circle().fill(Color(white: 0.5)).frame(width: 8, height: 8)
-                    .offset(y: rowHeight / 2 - 4 + rowHeight * CGFloat(index))
-                    .animation(.linear(duration: 0.1), value: index)
+                Rectangle().fill(.primary.opacity(0.22)).frame(width: 1).padding(.vertical, 4)
+                Circle().fill(.primary.opacity(0.65)).frame(width: 6, height: 6)
+                    .offset(y: rowHeight / 2 - 3 + rowHeight * CGFloat(index))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: index)
             }
             .frame(width: 16, height: rowHeight * CGFloat(titles.count))
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(titles, id: \.self) { title in
                     Button(title) { ui.scrollRequest = title }
                         .buttonStyle(.plain)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.primary.opacity(0.72))  // IINA: 170/255 on the dark sidebar
+                        .font(.system(size: 12, weight: title == ui.currentSection ? .medium : .regular))
+                        .foregroundStyle(.primary.opacity(title == ui.currentSection ? 1 : 0.72))
                         .frame(height: rowHeight, alignment: .center)
                 }
             }
@@ -108,10 +110,12 @@ struct SubsectionIndicator: View {
 /// ↑/↓ in the field move between pages.
 struct SearchField: NSViewRepresentable {
     @Binding var text: String
+    let dark: Bool
     var onArrow: (Int) -> Void
 
     func makeNSView(context: Context) -> NSSearchField {
         let field = NSSearchField()
+        if dark { field.appearance = NSAppearance(named: .darkAqua) }
         field.controlSize = .large
         field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
         field.placeholderString = "Search"
@@ -149,12 +153,8 @@ struct SearchField: NSViewRepresentable {
 
 /// Colours that differ between the dark and light appearance.
 enum SettingsColors {
-    /// Sidebar selection: a grey rounded rect (white 12 % in dark, as IINA), not the accent colour.
-    static let selection = dynamic(dark: NSColor(white: 1, alpha: 0.12), light: NSColor(white: 0, alpha: 0.08))
-    static let indicatorLine = dynamic(dark: NSColor(white: 1, alpha: 0.4), light: NSColor(white: 0, alpha: 0.25))
-    /// Card fill over `windowBackgroundColor`, matched by pixels: dark to IINA (the card reads darker than the
-    /// page, 25 vs 36 sRGB), light to the grouped form of System Settings (page 255, card 249).
-    static let cardFill = dynamic(dark: NSColor(white: 0, alpha: 0.3), light: NSColor(white: 0, alpha: 0.03))
+    /// Opaque neutral surfaces, slightly raised in dark mode and recessed in light mode.
+    static let cardFill = dynamic(dark: NSColor(white: 0.17, alpha: 1), light: NSColor(white: 0.97, alpha: 1))
 
     static func dynamic(dark: NSColor, light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

@@ -6,7 +6,6 @@ import SwiftUI
 struct CardView: View {
     @Environment(SettingsUIState.self) private var ui
     @Environment(SettingsModel.self) private var model
-    @Environment(\.settingsStyle) private var style
     @Environment(\.settingsPageID) private var pageID
     let card: SettingsCard
     /// How many of the card's lines are shown (the page builds them a few at a time, `PagePieces`).
@@ -52,13 +51,13 @@ struct CardView: View {
                 }
                 .overlay(alignment: .top) {
                     if i > 0 {
-                        Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+                        Rectangle().fill(.primary.opacity(0.08)).frame(height: 1)
                             .padding(.leading, line.nested && lines[i - 1].nested ? 44 : 36)
                     }
                 }
             }
         }
-        .cardSurface(style)
+        .settingsCardSurface()
     }
 
     /// The lines within `limit`, in `PagePieces`' units (a `.custom` row is several): a line shows once the limit
