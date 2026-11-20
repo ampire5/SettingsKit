@@ -13,6 +13,8 @@ settings presentation; the application owns the meaning, validation and persiste
   page selection, placement, editing completion and keyboard-loop behavior.
 - `Sources/SettingsKit/PageView.swift`, `RowViews.swift`, `SidebarView.swift`, `CardView.swift`: SwiftUI presentation.
 - `Sources/SettingsKit/KeyBindingTable.swift` / `KeyBindingSheet.swift`: binding editing and capture.
+- `Sources/SettingsKit/CheatSheetView.swift`: reusable shortcut HUD with AppKit search, focus restoration and responsive columns.
+  The host supplies effective bindings and fixed gestures, updates an open sheet when they change, and routes window input.
 - `Sources/SettingsKit/IconPickerWindow.swift` / `IconChoices.swift`: icon selection UI.
 
 `SettingsKit` is the single library target; `settings-demo` is a standalone integration example. There are no
